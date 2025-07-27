@@ -1,12 +1,13 @@
+// app/commands/cover.ts
 import { NextResponse } from 'next/server';
 import {
     InteractionResponseType,
-    // Import the more specific type
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 
+// This helper function remains unchanged
 async function findCoverArt(artist: string, album: string): Promise<string | null> {
     try {
         const searchTerm = `${artist} ${album}`;
@@ -40,7 +41,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
                 content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/cover username: <username>\`.`,
-                flags: 1 << 6,
+                flags: 1 << 6, // Ephemeral message
             },
         });
     }
@@ -61,28 +62,39 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const track = data.recenttracks.track[0];
 
-        if (!track['@attr']?.nowplaying) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `\`${lastfmUsername}\` is not listening to anything right now.` },
-            });
-        }
+        // This block has been removed! The code will now continue regardless of listening status.
 
         const artist = track.artist['#text'];
+        const trackName = track.name;
         const albumName = track.album['#text'];
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
         if (!albumArtUrl) {
             albumArtUrl = await findCoverArt(artist, albumName);
+            
+            // If still no cover art after fallback, send a message
+            if (!albumArtUrl) {
+                return NextResponse.json({
+                    type: InteractionResponseType.ChannelMessageWithSource,
+                    data: { content: `Could not find album art for **${trackName}** by **${artist}**.` },
+                });
+            }
         }
+        
+        // ✨ NEW: Dynamically set the footer text based on listening status
+        const isNowPlaying = track['@attr']?.nowplaying;
+        const footerText = isNowPlaying
+            ? `Currently listening: ${lastfmUsername}`
+            : `Last scrobbled by: ${lastfmUsername}`;
 
         const embed = {
             title: albumName,
-            description: `*by **${artist}***`,
-            color: 0xd51007,
+            // ✨ NEW: Add the track name to the description for more context
+            description: `**${trackName}**\n*by **${artist}***`,
+            color: 0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {
-                text: `Currently listening: ${lastfmUsername}`,
+                text: footerText, // Use our new dynamic text
                 icon_url: 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'
             }
         };

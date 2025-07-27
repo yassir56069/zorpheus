@@ -77,8 +77,8 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         
         // For a thumbnail, we want a smaller image. 'large' (174x174) is a good choice.
         const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
-                           || track.image.find((img: { size: string; }) => img.size === 'medium')?.['#text']
-                           || track.image[track.image.length - 1]?.['#text'];
+        || track.image.find((img: { size: string; }) => img.size === 'medium')?.['#text']
+        || track.image[track.image.length - 1]?.['#text'];
 
         // If for some reason there's absolutely no image, we can still proceed
         // The thumbnail just won't be displayed
@@ -141,4 +141,4 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             data: { content: 'An error occurred while fetching data from Last.fm.' },
         });
     }
-}:
+};

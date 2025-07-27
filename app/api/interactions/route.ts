@@ -2,13 +2,12 @@
 import {
   InteractionType,
   InteractionResponseType,
-  InteractionResponseFlags,
 } from 'discord-interactions';
 import { NextResponse } from 'next/server';
 import { verifyKey } from 'discord-interactions';
 
 export async function POST(req: Request) {
-  // You must verify the request signature from Discord
+  // You must verify the request signature from Discord 
   const signature = req.headers.get('x-signature-ed25519');
   const timestamp = req.headers.get('x-signature-timestamp');
   const body = await req.text();
@@ -27,7 +26,7 @@ export async function POST(req: Request) {
   // Parse the interaction body
   const interaction = JSON.parse(body);
 
-  // Handle Discord's PING request
+  // Handle Discord's PING request for endpoint verification
   if (interaction.type === InteractionType.PING) {
     return NextResponse.json({ type: InteractionResponseType.PONG });
   }

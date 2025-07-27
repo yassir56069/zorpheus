@@ -8,8 +8,9 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
+
 // This helper function remains unchanged
-async function findCoverArt(artist: string, album: string): Promise<string | null> {
+async function findCoverArt(artist: string, album: string, size: number = 1000): Promise<string | null> {
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
@@ -18,7 +19,8 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
 
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
-            return bestMatch.artworkUrl100.replace('100x100', '1000x1000');
+            // Use the provided size for the URL
+            return bestMatch.artworkUrl100.replace('100x100', `${size}x${size}`);
         }
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
@@ -90,9 +92,17 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
         const albumName = track.album['#text'];
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
-
         const dominantColor = await getDominantColor(albumArtUrl);
-        
+
+        const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+        let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'; // Default
+
+        if (dominantColor) {
+            // Convert the decimal color back to a hex string for the URL parameter
+            const hexColor = dominantColor.toString(16).padStart(6, '0');
+            iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
+        }
+
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
         if (!albumArtUrl) {
@@ -114,13 +124,12 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const embed = {
             title: albumName,
-            // ✨ NEW: Add the track name to the description for more context
-            description: `*by **${artist}***`,
-            color: dominantColor ||0xd51007, // Last.fm red
+            description: `*-# by **${artist}***`,
+            color: dominantColor || 0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {
                 text: footerText, // Use our new dynamic text
-                icon_url: 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'
+                icon_url: iconUrl 
             }
         };
 
@@ -136,4 +145,4 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             data: { content: 'An error occurred while fetching data from Last.fm.' },
         });
     }
-}
+}   

@@ -11,7 +11,7 @@ if (!token || !applicationId) {
 const commands = [
   {
     name: 'ping',
-    description: 'Replies with Pong! to test latency.',
+    description: 'Replies with Boing! to test latency.',
   },
     {
     name: 'register',

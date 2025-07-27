@@ -92,6 +92,8 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const embed = {
             title: albumName,
+            // ✨ NEW: Add the track name to the description for more context
+            description: `*by **${artist}***`,
             color: 0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {

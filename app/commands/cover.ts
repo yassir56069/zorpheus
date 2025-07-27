@@ -143,6 +143,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
+        console.log(`image url: ${albumArtUrl}`);
         const embed = {
             title: albumName,
             description: `-# by **${artist}**`,

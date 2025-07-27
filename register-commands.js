@@ -30,8 +30,8 @@ const commands = [
     description: 'Fetches the album cover for your currently playing song on Last.fm.',
     options: [
       {
-        name: 'username',
-        description: 'Your Last.fm username.',
+        name: 'search',
+        description: 'Album to search for. Defaults to your currently playing song.',
         type: 3, // Type 3 corresponds to STRING
         required: false,
       },

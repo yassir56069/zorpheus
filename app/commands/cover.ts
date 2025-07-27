@@ -117,7 +117,7 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
             console.log(`Successfully got album art from iTunes. ${highResUrl}`);
-            // return highResUrl;
+            return highResUrl;
         }
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
@@ -269,7 +269,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         
         const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
 
-        if (isLastFmUrlValid) {
+        if (!isLastFmUrlValid) {
             console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
         }

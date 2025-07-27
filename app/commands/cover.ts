@@ -91,6 +91,8 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
 
+        const dominantColor = await getDominantColor(albumArtUrl);
+        
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
         if (!albumArtUrl) {
@@ -105,7 +107,6 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             }
         }
         
-        const dominantColor = await getDominantColor(albumArtUrl);
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying
             ? `Currently listening: ${lastfmUsername}`

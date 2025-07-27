@@ -10,15 +10,15 @@ if (!token || !applicationId) {
 
 const commands = [
   {
-    name: 'saturn',
-    description: 'Replies with Boing! to test latency.',
+    name: 'ping',
+    description: 'Replies with Pong! to test latency.',
   },
     {
     name: 'register',
     description: 'Register your Last.fm username with the bot.',
     options: [
       {
-        name: '👤 Username',
+        name: 'username',
         description: 'Your Last.fm username.',
         type: 3, // STRING
         required: true,
@@ -30,10 +30,10 @@ const commands = [
     description: 'Displays album art. Searches for an album or shows your last played track.',
     options: [
       {
-        name: '🔎 Search',
-        description: 'Search for an album on Last.fm.',
+        name: 'search',
+        description: 'search for an album on last.fm.',
         type: 3, // Type 3 corresponds to STRING
-        required: false,
+        required: true,
       },
     ],
   },

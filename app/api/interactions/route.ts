@@ -5,65 +5,80 @@ import {
   InteractionResponseType,
   APIInteraction,
   APIApplicationCommandInteractionDataStringOption,
+  ApplicationCommandType,
 } from 'discord-api-types/v10';
 import { verifyKey } from 'discord-interactions';
-import { verifyDiscordRequest } from '@/utils/verify-discord-request';
-import { kv } from '@vercel/kv';
+import { createClient } from '@vercel/kv';
 
-// (This is our verification function from before)
+// Initialize the KV client to connect to your Vercel KV store
+const kv = createClient({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
+
+// Verification function to ensure requests are from Discord
 async function verifyRequest(req: Request, publicKey: string) {
-    const signature = req.headers.get('x-signature-ed25519');
-    const timestamp = req.headers.get('x-signature-timestamp');
-    const body = await req.text();
+  const signature = req.headers.get('x-signature-ed25519');
+  const timestamp = req.headers.get('x-signature-timestamp');
+  const body = await req.text();
 
-    if (!signature || !timestamp) {
-        return { isValid: false, interaction: null };
-    }
-    
-    const isValid = verifyKey(body, signature, timestamp, publicKey);
-    
-    return { isValid, interaction: await isValid ? (JSON.parse(body) as APIInteraction) : null };
+  if (!signature || !timestamp) {
+    return { isValid: false, interaction: null };
+  }
+  
+  const isValid = verifyKey(body, signature, timestamp, publicKey);
+  
+  return { isValid, interaction: await isValid ? (JSON.parse(body) as APIInteraction) : null };
 }
 
+// Main function to handle all incoming interactions from Discord
 export async function POST(req: Request) {
-    const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
+  const { isValid, interaction } = await verifyRequest(req, process.env.DISCORD_PUBLIC_KEY!);
 
-    if (!isValid || !interaction) {
-        return new NextResponse('Invalid request signature', { status: 401 });
-    }
+  if (!isValid || !interaction) {
+    return new NextResponse('Invalid request signature', { status: 401 });
+  }
 
-    if (interaction.type === InteractionType.Ping) {
-        return NextResponse.json({ type: InteractionResponseType.Pong });
-    }
+  // Handle Discord's PING check for endpoint verification
+  if (interaction.type === InteractionType.Ping) {
+    return NextResponse.json({ type: InteractionResponseType.Pong });
+  }
 
-    if (interaction.type === InteractionType.ApplicationCommand) {
-        const { name, options } = interaction.data;
+  // Handle Application Commands (Slash Commands)
+  if (interaction.type === InteractionType.ApplicationCommand) {
+    if (interaction.data.type === ApplicationCommandType.ChatInput) {
+      const { name, options } = interaction.data;
 
-    // "ping" command logic
-    if (name === 'ping') {
+      // Logic for the "/ping" command
+      if (name === 'ping') {
         const interactionId = BigInt(interaction.id);
         const creationTimestamp = Number((interactionId >> BigInt(22)) + BigInt('1420070400000'));
         const latency = Date.now() - creationTimestamp;
         return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `🏓 Pong! Latency is ${latency}ms.` },
+          type: InteractionResponseType.ChannelMessageWithSource,
+          data: { content: `🏓 Pong! Latency is ${latency}ms.` },
         });
-    }
+      }
 
-    if (name === 'register') {
+      // Logic for the "/register" command
+      if (name === 'register') {
         const discordUserId = interaction.member!.user.id;
         const usernameOption = options?.[0] as APIApplicationCommandInteractionDataStringOption;
         const lastfmUsername = usernameOption.value;
 
+        // Save the mapping of Discord ID -> Last.fm username in Vercel KV
         await kv.set(discordUserId, lastfmUsername);
 
         return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `✅ Success! Your Last.fm username has been saved as \`${lastfmUsername}\`.` },
+          type: InteractionResponseType.ChannelMessageWithSource,
+          data: {
+            content: `✅ Success! Your Last.fm username has been saved as \`${lastfmUsername}\`.`,
+            flags: 1 << 6, // Ephemeral message (only visible to the user)
+          },
         });
-    }
+      }
 
-    // "cover" command logic
+      // Logic for the "/cover" command using the deferral system
       if (name === 'cover') {
         // This async function will run in the background
         (async () => {
@@ -170,5 +185,7 @@ export async function POST(req: Request) {
         });
       }
     }
-    return new NextResponse('Unhandled interaction type', { status: 404 });
   }
+
+  return new NextResponse('Unhandled interaction type', { status: 404 });
+}

@@ -130,7 +130,7 @@ export async function POST(req: Request) {
             
             const artist = track.artist['#text'];
             const trackName = track.name;
-            const albumArtUrl = track.image.find((img: any) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
+            const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
             
             if (!albumArtUrl) {
                 await fetch(editUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: `Could not find album art for "${trackName}" by ${artist}.` }) });

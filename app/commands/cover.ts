@@ -6,6 +6,7 @@ import {
     APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
+import Vibrant from 'node-vibrant';
 
 // This helper function remains unchanged
 async function findCoverArt(artist: string, album: string): Promise<string | null> {
@@ -24,6 +25,26 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
     }
     return null;
 }
+
+async function getDominantColor(imageUrl: string): Promise<number | null> {
+    try {
+        const palette = await Vibrant.from(imageUrl).getPalette();
+        // We'll prioritize the "Vibrant" swatch, but you can choose others
+        // like Muted, DarkVibrant, etc.
+        const vibrantSwatch = palette.Vibrant || palette.Muted || palette.LightVibrant;
+
+        if (vibrantSwatch && vibrantSwatch.hex) {
+            // Discord requires the color as a decimal (integer), not a hex string.
+            // We parse the hex string (e.g., "#RRGGBB") into an integer.
+            return parseInt(vibrantSwatch.hex.substring(1), 16);
+        }
+    } catch (error) {
+        console.error("Error getting dominant color:", error);
+    }
+    // Return null if we fail, so we can use a fallback color
+    return null;
+}
+
 
 export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
     let lastfmUsername: string | null = null;
@@ -84,7 +105,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             }
         }
         
-        // ✨ NEW: Dynamically set the footer text based on listening status
+        const dominantColor = await getDominantColor(albumArtUrl);
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying
             ? `Currently listening: ${lastfmUsername}`
@@ -94,7 +115,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             title: albumName,
             // ✨ NEW: Add the track name to the description for more context
             description: `*by **${artist}***`,
-            color: 0xd51007, // Last.fm red
+            color: dominantColor ||0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {
                 text: footerText, // Use our new dynamic text

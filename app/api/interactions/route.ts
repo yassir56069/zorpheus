@@ -97,41 +97,58 @@ export async function POST(req: Request) {
           const followupUrl = `https://discord.com/api/v10/webhooks/${application_id}/${interaction_token}/messages/@original`;
           
           try {
+            // --- HARDENED CHECKS ---
+            const apiKey = process.env.LASTFM_API_KEY;
+            if (!apiKey) {
+              throw new Error("Missing LASTFM_API_KEY environment variable on Vercel.");
+            }
+            if (!interaction.member?.user?.id) {
+              throw new Error("Could not identify the user.");
+            }
+
             let lastfmUsername: string | null = null;
             if (options && options.length > 0) {
               lastfmUsername = (options[0] as APIApplicationCommandInteractionDataStringOption).value;
             } else {
-              lastfmUsername = await kv.get(interaction.member!.user.id);
+              lastfmUsername = await kv.get(interaction.member.user.id);
             }
 
             if (!lastfmUsername) {
               throw new Error(`You need to register first! Use the \`/register\` command.`);
             }
-
-            const apiKey = process.env.LASTFM_API_KEY!;
+            
             const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
             
             const response = await fetch(apiUrl);
+            if (!response.ok) {
+              throw new Error(`Last.fm API responded with status: ${response.status}`);
+            }
             const data = await response.json();
 
-            if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
+            // More defensive data access
+            const trackData = data?.recenttracks?.track?.[0];
+            if (!trackData) {
               throw new Error(`Could not find any recent tracks for user \`${lastfmUsername}\`.`);
             }
-            const trackData = data.recenttracks.track[0];
             if (!trackData['@attr']?.nowplaying) {
               throw new Error(`\`${lastfmUsername}\` is not listening to anything right now.`);
             }
 
-            const artist = trackData.artist['#text'];
+            const artist = trackData.artist?.['#text'];
             const trackName = trackData.name;
-            const albumName = trackData.album['#text'];
+            const albumName = trackData.album?.['#text'];
+
+            if (!artist || !trackName) {
+              throw new Error("The track data from Last.fm was incomplete.");
+            }
             
             let finalAlbumArtUrl: string | null = null;
-            const lastfmArt = (trackData.image as {size: string, '#text': string}[]).find(img => img.size === 'extralarge')?.['#text'];
+            const lastfmArt = (trackData.image as {size: string, '#text': string}[])?.find(img => img.size === 'extralarge')?.['#text'];
             
             if (lastfmArt) {
               finalAlbumArtUrl = lastfmArt.replace(/\/\d+x\d+\//, "/");
             }
+            // Only try fallback if we have an album name
             if (!finalAlbumArtUrl && albumName) {
               finalAlbumArtUrl = await findCoverArt(artist, albumName);
             }
@@ -143,6 +160,8 @@ export async function POST(req: Request) {
                 description: `by **${artist}**\n*from ${albumName || 'Unknown Album'}*`,
                 color: 0xd51007,
               }],
+              // Add allowed_mentions to prevent pinging anyone
+              allowed_mentions: { parse: [] }
             };
 
             await fetch(followupUrl, {
@@ -150,13 +169,14 @@ export async function POST(req: Request) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(finalPayload),
             });
-        
+
             // eslint-disable-next-line 
           } catch (e: any) {
+            // This ensures ANY error gets reported back to the user
             await fetch(followupUrl, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: e.message || "An unknown error occurred." }),
+              body: JSON.stringify({ content: `⚠️ **An error occurred:**\n${e.message}` }),
             });
           }
         })();
@@ -164,7 +184,7 @@ export async function POST(req: Request) {
         return initialResponse;
       }
     }
-  }
+}
 
   return new NextResponse('Unhandled interaction type', { status: 404 });
 }

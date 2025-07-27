@@ -6,7 +6,7 @@ import {
     APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
-import Vibrant from 'node-vibrant';
+import { Vibrant } from 'node-vibrant/node';
 
 // This helper function remains unchanged
 async function findCoverArt(artist: string, album: string): Promise<string | null> {

@@ -7,7 +7,6 @@ import { NextResponse } from 'next/server';
 import { verifyKey } from 'discord-interactions';
 
 export async function POST(req: Request) {
-  // You must verify the request signature from Discord 
   const signature = req.headers.get('x-signature-ed25519');
   const timestamp = req.headers.get('x-signature-timestamp');
   const body = await req.text();
@@ -23,19 +22,18 @@ export async function POST(req: Request) {
     return new NextResponse('Invalid signature', { status: 401 });
   }
 
-  // Parse the interaction body
   const interaction = JSON.parse(body);
 
   // Handle Discord's PING request for endpoint verification
   if (interaction.type === InteractionType.PING) {
-    return NextResponse.json({ type: InteractionResponseType.PONG });
+    // THIS IS THE MODIFIED LINE
+    return NextResponse.json({ type: 1 }); 
   }
 
   // Handle the slash command
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
     const { name } = interaction.data;
 
-    // "ping" command
     if (name === 'ping') {
       return NextResponse.json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -46,6 +44,5 @@ export async function POST(req: Request) {
     }
   }
 
-  // Default response for unhandled interactions
   return new NextResponse('Unhandled interaction', { status: 404 });
 }

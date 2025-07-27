@@ -13,6 +13,18 @@ const commands = [
     name: 'ping',
     description: 'Replies with Pong! to test latency.',
   },
+  {
+    name: 'cover',
+    description: 'Fetches the album cover for your currently playing song on Last.fm.',
+    options: [
+      {
+        name: 'username',
+        description: 'Your Last.fm username.',
+        type: 3, // Type 3 corresponds to STRING
+        required: true,
+      },
+    ],
+  },
 ];
 
 const url = `https://discord.com/api/v10/applications/${applicationId}/commands`;

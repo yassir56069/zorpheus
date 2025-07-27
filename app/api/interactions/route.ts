@@ -93,6 +93,8 @@ export async function POST(req: Request) {
         let lastfmUsername: string | null = null;
         // User ID is the unique key for our database
         const discordUserId = interaction.member!.user.id;
+          const application_id = interaction.application_id;
+        const interaction_token = interaction.token
         
         // First, check if a username was explicitly provided in the command options
         if (options && options.length > 0) {
@@ -114,6 +116,17 @@ export async function POST(req: Request) {
             },
             });
         }
+
+          // Define the function to send the follow-up embed
+            const sendFollowup = async (embed: any) => {
+                const followupUrl = `https://discord.com/api/v10/webhooks/${application_id}/${interaction_token}`;
+                await fetch(followupUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ embeds: [embed] }),
+                });
+            };
+
         
         // Now, proceed with the Last.fm API call using the determined username
         const apiKey = process.env.LASTFM_API_KEY;
@@ -156,28 +169,29 @@ export async function POST(req: Request) {
             
             const originalImageUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
-            // Create the Discord Embed to display the information cleanly
             const embed = {
-            title: albumName,
-            description: `*by **${artist}***`,
-            color: 0xd51007, // Last.fm red
-            image: {
-                url: originalImageUrl, // <-- The image is part of the embed
-            },
+            title: trackName,
+            description: `by **${artist}**\n*from ${albumName || 'Unknown Album'}*`,
+            color: 0xd51007,
             footer: {
-                text: `🎶 Currently listening: ${lastfmUsername}`,
-                icon_url: 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'
+                text: `Currently listening: ${lastfmUsername}`,
+                icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png'
             }
             };
+            
+            // 4. Send the follow-up message with the embed FIRST
+            await sendFollowup(embed);
 
-            // 2. Send a response containing ONLY the 'embeds' array.
-            // Do not use the 'content' field.
+            // 5. If we found an image, send it as the INITIAL response.
+            // Otherwise, send a text confirmation as the initial response.
+            const initialResponseContent = albumArtUrl || "Here's your track info:";
+            
             return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
-                embeds: [embed],
+                content: initialResponseContent,
             },
-            });
+        });
 
         } catch (error) {
             console.error(error);

@@ -99,10 +99,10 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         }
         
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
-        
+
         const embed = {
             title: albumName,
-            description: `*by **${artist}***`,
+            description: `-# by **${artist}**`,
             color: dominantColor || 0xd51007,
             image: { url: albumArtUrl },
             footer: {
@@ -175,7 +175,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         
         const embed = {
             title: albumName,
-            description: `**${trackName}**\n*by **${artist}***`,
+            description: `-# by **${artist}**`,
             color: dominantColor || 0xd51007,
             image: { url: albumArtUrl },
             footer: {

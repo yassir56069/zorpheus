@@ -50,6 +50,19 @@ export async function POST(req: Request) {
         });
     }
 
+    if (name === 'register') {
+        const discordUserId = interaction.member!.user.id;
+        const usernameOption = options?.[0] as APIApplicationCommandInteractionDataStringOption;
+        const lastfmUsername = usernameOption.value;
+
+        await kv.set(discordUserId, lastfmUsername);
+
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: { content: `✅ Success! Your Last.fm username has been saved as \`${lastfmUsername}\`.` },
+        });
+    }
+
     // "cover" command logic
     if (name === 'cover') {
     let lastfmUsername: string | null = null;

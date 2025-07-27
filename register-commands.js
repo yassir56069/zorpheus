@@ -33,7 +33,7 @@ const commands = [
         name: 'username',
         description: 'Your Last.fm username.',
         type: 3, // Type 3 corresponds to STRING
-        required: true,
+        required: false,
       },
     ],
   },

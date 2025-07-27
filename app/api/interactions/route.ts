@@ -35,7 +35,7 @@ async function findCoverArt(artist: string, album: string, track: string): Promi
 
     if (data.resultCount > 0) {
       // Find the best match - sometimes the first result isn't the album.
-      const bestMatch = data.results.find((r: any) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
+      const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
 
       // iTunes provides a 100x100px thumbnail. We can get a high-res version by replacing '100x100' in the URL.
       const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');

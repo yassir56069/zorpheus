@@ -13,6 +13,10 @@ const commands = [
     name: 'ping',
     description: 'Replies with Pong! to test latency.',
   },
+  {
+    name: 'fm',
+    description: '[in beta] displays your current scrobbled track',
+  },
     {
     name: 'register',
     description: 'Register your Last.fm username with the bot.',

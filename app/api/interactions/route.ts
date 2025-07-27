@@ -36,7 +36,6 @@ export async function POST(req: Request) {
                 return handleRegister(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
-
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
             default:

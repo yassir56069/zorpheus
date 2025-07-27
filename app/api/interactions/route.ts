@@ -28,22 +28,28 @@ export async function POST(req: Request) {
     return new NextResponse('Invalid request signature', { status: 401 });
   }
 
-  if (interaction.type === InteractionType.Ping) {
-    return NextResponse.json({ type: InteractionResponseType.Pong });
-  }
 
   if (interaction.type === InteractionType.ApplicationCommand) {
     const { name } = interaction.data;
 
+    // "ping" command
     if (name === 'ping') {
+      // Get the timestamp from the interaction's ID
+      const interactionId = BigInt(interaction.id);
+      const creationTimestamp = Number((interactionId >> BigInt(22)) + BigInt(1420070400000));
+      
+      // Calculate the latency
+      const latency = Date.now() - creationTimestamp;
+
       return NextResponse.json({
         type: InteractionResponseType.ChannelMessageWithSource,
         data: {
-          content: 'Pong!',
+          content: `🏓 Pong! Latency is ${latency}ms.`,
         },
       });
     }
   }
+
 
   return new NextResponse('Unhandled interaction type', { status: 404 });
 }

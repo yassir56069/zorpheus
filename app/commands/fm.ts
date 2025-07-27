@@ -96,15 +96,28 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         
         // ✨ NEW EMBED STRUCTURE
         const embed = {
-            // The title is now the track name
+            // The title remains the track name
             title: trackName,
-            // The description contains the artist and album info
-            description: `*by **${artist}***\n*on **${albumName}***`,
+            // The description can be removed or left empty
+            description: "", 
             color: dominantColor || 0xd51007,
-            // ✨ Use thumbnail for the small image on the right
+            // The thumbnail stays the same
             thumbnail: {
                 url: albumArtUrl,
             },
+            // ✨ ADDED: An array of fields to structure the data
+            fields: [
+                {
+                    name: 'Artist', // The title of the field
+                    value: `**${artist}**`, // The content of the field
+                    inline: false, // `false` ensures it takes up a full row
+                },
+                {
+                    name: 'Album',
+                    value: `**${albumName}**`,
+                    inline: false,
+                },
+            ],
             footer: {
                 text: footerText,
                 icon_url: iconUrl,

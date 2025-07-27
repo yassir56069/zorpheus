@@ -94,14 +94,23 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const dominantColor = await getDominantColor(albumArtUrl);
 
-        const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
-        let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'; // Default
 
+        const getBaseUrl = () => {
+            if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+                return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+            }
+            // Use the public URL from your .env file for local dev or previews
+            return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        };
+        const baseUrl = getBaseUrl();
+
+        let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'; // Default
         if (dominantColor) {
-            // Convert the decimal color back to a hex string for the URL parameter
             const hexColor = dominantColor.toString(16).padStart(6, '0');
             iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
         }
+
+
 
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
@@ -117,6 +126,8 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             }
         }
         
+
+
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying
             ? `Currently listening: ${lastfmUsername}`
@@ -124,7 +135,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const embed = {
             title: albumName,
-            description: `*-# by **${artist}***`,
+            description: `-# **${artist}**`,
             color: dominantColor || 0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {

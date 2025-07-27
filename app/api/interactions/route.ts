@@ -150,6 +150,8 @@ export async function POST(req: Request) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(finalPayload),
             });
+        
+            // eslint-disable-next-line 
           } catch (e: any) {
             await fetch(followupUrl, {
               method: 'PATCH',

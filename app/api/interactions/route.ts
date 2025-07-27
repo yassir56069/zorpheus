@@ -143,14 +143,14 @@ export async function POST(req: Request) {
 
             const artist = track.artist['#text'];
             const trackName = track.name;
-            const albumName = track.album['Next'];
+            const albumName = track.album['#text'];
             // Find the 'extralarge' image, or fall back to the last available image as a safety measure
             let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
             
 
             // Handle the rare case where lastfm fails 
-            if (!albumArtUrl) {
+            if (albumArtUrl) {
                 albumArtUrl = await findCoverArt(artist, albumName, trackName);
             }
             

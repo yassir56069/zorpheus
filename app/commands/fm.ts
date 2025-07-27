@@ -88,7 +88,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
                 const minutes = Math.floor(durationSeconds / 60);
                 const seconds = durationSeconds % 60;
                 // Pad seconds with a leading zero if needed (e.g., 3:05)
-                formattedDuration = `⏱ (${minutes}:${seconds.toString().padStart(2, '0')})`;
+                formattedDuration = `-# ⏱ (${minutes}:${seconds.toString().padStart(2, '0')})`;
             }
         } catch (e) {
             console.error("Could not fetch track duration:", e);
@@ -126,7 +126,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             // The title remains the track name
             title: paddedTitle, 
             // The description can be removed or left empty
-            description: `${artist} •  ${albumName} \n-# ${formattedDuration}`, 
+            description: `${artist} •  ${albumName} \n${formattedDuration}`, 
             color: dominantColor || 0xd51007,
             // The thumbnail stays the same
             thumbnail: {

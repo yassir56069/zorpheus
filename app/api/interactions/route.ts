@@ -64,104 +64,111 @@ export async function POST(req: Request) {
     }
 
     // "cover" command logic
-    if (name === 'cover') {
-        let lastfmUsername: string | null = null;
-        // User ID is the unique key for our database
-        const discordUserId = interaction.member!.user.id;
-        
-        // First, check if a username was explicitly provided in the command options
-        if (options && options.length > 0) {
-            const usernameOption = options[0] as APIApplicationCommandInteractionDataStringOption;
-            lastfmUsername = usernameOption.value;
-        } else {
-            // If not, try to retrieve the username from our Vercel KV store
-            lastfmUsername = await kv.get(discordUserId);
-        }
+      if (name === 'cover') {
+        // This async function will run in the background
+        (async () => {
+          const applicationId = interaction.application_id;
+          const interactionToken = interaction.token;
+          
+          const editUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`;
+          const followupUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}`;
 
-        // If we still don't have a username after both checks, the user needs to register.
-        if (!lastfmUsername) {
-            return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: {
-                content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/cover username: <username>\`.`,
-                // ephemeral message flag
-                flags: 1 << 6,
-            },
-            });
-        }
-        
-        // Now, proceed with the Last.fm API call using the determined username
-        const apiKey = process.env.LASTFM_API_KEY;
-        const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
-        
-        try {
+          try {
+            let lastfmUsername: string | null = null;
+            const discordUserId = interaction.member!.user.id;
+
+            if (options && options.length > 0) {
+              const usernameOption = options[0] as APIApplicationCommandInteractionDataStringOption;
+              lastfmUsername = usernameOption.value;
+            } else {
+              lastfmUsername = await kv.get(discordUserId);
+            }
+
+            if (!lastfmUsername) {
+              await fetch(editUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first.`,
+                  flags: 1 << 6,
+                }),
+              });
+              return;
+            }
+
+            const apiKey = process.env.LASTFM_API_KEY;
+            const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
             const response = await fetch(apiUrl);
             const data = await response.json();
 
-            // Handle case where Last.fm user doesn't exist or has no tracks
             if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find any recent tracks for user \`${lastfmUsername}\`. Make sure the profile is public and the username is correct.` },
-            });
+                await fetch(editUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`. Make sure the profile is public.` }) });
+                return;
             }
             
             const track = data.recenttracks.track[0];
 
-            // Check if the user is currently playing a song
             if (!track['@attr'] || !track['@attr'].nowplaying) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `\`${lastfmUsername}\` is not listening to anything right now.` },
-            });
+                await fetch(editUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: `\`${lastfmUsername}\` is not listening to anything right now.` }) });
+                return;
             }
-
+            
             const artist = track.artist['#text'];
             const trackName = track.name;
-            // Find the 'extralarge' image, or fall back to the last available image as a safety measure
-            const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
+            const albumArtUrl = track.image.find((img: any) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
             
-            // Handle the rare case where a track has no images
             if (!albumArtUrl) {
-                return NextResponse.json({
-                    type: InteractionResponseType.ChannelMessageWithSource,
-                    data: { content: `Could not find album art for "${trackName}" by ${artist}.` },
-                });
+                await fetch(editUrl, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: `Could not find album art for "${trackName}" by ${artist}.` }) });
+                return;
             }
-            
+
             const originalImageUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
 
-            // Create the Discord Embed to display the information cleanly
+            // First message: Edit the original "thinking..." message to be just the image
+            await fetch(editUrl, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: originalImageUrl }),
+            });
+
+            // Create the text-only embed
             const embed = {
-            title: trackName,
-            description: `by **${artist}**`,
-            color: 0xd51007, // Last.fm red
-            image: {
-                url: originalImageUrl, // <-- The image is part of the embed
-            },
-            footer: {
+              title: trackName,
+              description: `by **${artist}**`,
+              color: 0xd51007,
+              footer: {
                 text: `Currently listening: ${lastfmUsername}`,
-                icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png'
-            }
+                icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png',
+              },
             };
 
-            // 2. Send a response containing ONLY the 'embeds' array.
-            // Do not use the 'content' field.
-            return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: {
-                embeds: [embed],
-            },
+            // Second message: Send a brand new follow-up message with the embed
+            await fetch(followupUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ embeds: [embed] }),
             });
 
-        } catch (error) {
-            console.error(error);
-            return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: 'An error occurred while fetching data from Last.fm.' },
-            });
-        }
+          } catch (err) {
+            console.error('Error in cover command:', err);
+            // Fallback error message if anything goes wrong
+            try {
+              await fetch(editUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'Sorry, an unexpected error occurred.' }),
+              });
+            } catch (e) {
+              console.error('Failed to send error message:', e);
+            }
+          }
+        })(); // Immediately invoke the async function
+
+        // Immediately return the DEFER response
+        return NextResponse.json({
+          type: InteractionResponseType.DeferredChannelMessageWithSource,
+        });
+      }
     }
-}
-return new NextResponse('Unhandled interaction type', { status: 404 });
-}
+    return new NextResponse('Unhandled interaction type', { status: 404 });
+  }

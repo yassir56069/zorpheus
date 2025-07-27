@@ -97,7 +97,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         // ✨ NEW EMBED STRUCTURE
         const embed = {
             // The title remains the track name
-            title: trackName,
+            title: `▶ ${trackName}`,
             // The description can be removed or left empty
             description: "", 
             color: dominantColor || 0xd51007,
@@ -113,8 +113,13 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
                     inline: true, // `false` ensures it takes up a full row
                 },
                 {
+                    name: '', // The title of the field
+                    value: `●`, // The content of the field
+                    inline: true, // `false` ensures it takes up a full row
+                },
+                {
                     name: '',
-                    value: `-#**${albumName}**`,
+                    value: `-# **${albumName}**`,
                     inline: true,
                 },
             ],
@@ -136,4 +141,4 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             data: { content: 'An error occurred while fetching data from Last.fm.' },
         });
     }
-}
+}:

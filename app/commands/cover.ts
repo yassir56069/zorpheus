@@ -114,7 +114,9 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         const albumName = album.name;
         const artist = album.artist;
 
-        let albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || album.image[album.image.length - 1]?.['#text'];
+        let albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+        || album.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
+        || album.image[album.image.length - 1]?.['#text'];
         
         const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
 
@@ -188,7 +190,9 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
-        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
+        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+        || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
+        || track.image[track.image.length - 1]?.['#text'];
         
         const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
 

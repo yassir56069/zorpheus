@@ -9,11 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "discord-api-types": "^0.38.17",
     "discord-interactions": "^4.3.0",
     "dotenv": "^17.2.1",
     "next": "15.4.4",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

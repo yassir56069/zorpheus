@@ -126,7 +126,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             // The title remains the track name
             title: paddedTitle, 
             // The description can be removed or left empty
-            description: `${artist} ●  ${albumName} \n-# ${formattedDuration}`, 
+            description: `${artist} •  ${albumName} \n-# ${formattedDuration}`, 
             color: dominantColor || 0xd51007,
             // The thumbnail stays the same
             thumbnail: {

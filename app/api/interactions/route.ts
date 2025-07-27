@@ -165,8 +165,8 @@ export async function POST(req: Request) {
                 url: originalImageUrl, // <-- The image is part of the embed
             },
             footer: {
-                text: `Currently listening: ${lastfmUsername}`,
-                icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png'
+                text: `🎶 Currently listening: ${lastfmUsername}`,
+                icon_url: 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png'
             }
             };
 

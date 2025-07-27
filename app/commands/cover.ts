@@ -282,10 +282,10 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
 
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
-        const iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';
+        let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';
         if (dominantColor) {
             const hexColor = dominantColor.toString(16).padStart(6, '0');
-            // iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
+            iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
         }
         
         const isNowPlaying = track['@attr']?.nowplaying;

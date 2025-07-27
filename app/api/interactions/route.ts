@@ -65,98 +65,97 @@ export async function POST(req: Request) {
 
     // "cover" command logic
     if (name === 'cover') {
-    let lastfmUsername: string | null = null;
-    // User ID is the unique key for our database
-    const discordUserId = interaction.member!.user.id;
-    
-    // First, check if a username was explicitly provided in the command options
-    if (options && options.length > 0) {
-        const usernameOption = options[0] as APIApplicationCommandInteractionDataStringOption;
-        lastfmUsername = usernameOption.value;
-    } else {
-        // If not, try to retrieve the username from our Vercel KV store
-        lastfmUsername = await kv.get(discordUserId);
-    }
-
-    // If we still don't have a username after both checks, the user needs to register.
-    if (!lastfmUsername) {
-        return NextResponse.json({
-        type: InteractionResponseType.ChannelMessageWithSource,
-        data: {
-            content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/cover username: <username>\`.`,
-            // ephemeral message flag
-            flags: 1 << 6,
-        },
-        });
-    }
-    
-    // Now, proceed with the Last.fm API call using the determined username
-    const apiKey = process.env.LASTFM_API_KEY;
-    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
-    
-    try {
-        const response = await fetch(apiUrl);
-        const data = await response.json();
-
-        // Handle case where Last.fm user doesn't exist or has no tracks
-        if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `Could not find any recent tracks for user \`${lastfmUsername}\`. Make sure the profile is public and the username is correct.` },
-        });
-        }
+        let lastfmUsername: string | null = null;
+        // User ID is the unique key for our database
+        const discordUserId = interaction.member!.user.id;
         
-        const track = data.recenttracks.track[0];
-
-        // Check if the user is currently playing a song
-        if (!track['@attr'] || !track['@attr'].nowplaying) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `\`${lastfmUsername}\` is not listening to anything right now.` },
-        });
+        // First, check if a username was explicitly provided in the command options
+        if (options && options.length > 0) {
+            const usernameOption = options[0] as APIApplicationCommandInteractionDataStringOption;
+            lastfmUsername = usernameOption.value;
+        } else {
+            // If not, try to retrieve the username from our Vercel KV store
+            lastfmUsername = await kv.get(discordUserId);
         }
 
-        const artist = track.artist['#text'];
-        const trackName = track.name;
-        // Find the 'extralarge' image, or fall back to the last available image as a safety measure
-        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
-        
-        // Handle the rare case where a track has no images
-        if (!albumArtUrl) {
+        // If we still don't have a username after both checks, the user needs to register.
+        if (!lastfmUsername) {
             return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find album art for "${trackName}" by ${artist}.` },
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/cover username: <username>\`.`,
+                // ephemeral message flag
+                flags: 1 << 6,
+            },
             });
         }
         
-        // Create the Discord Embed to display the information cleanly
-        const embed = {
-        title: trackName,
-        description: `by **${artist}**`,
-        color: 0xd51007, // Last.fm red
-        image: {
-            url: albumArtUrl,
-        },
-        footer: {
-            text: `Currently listening: ${lastfmUsername}`,
-            icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png'
-        }
-        };
+        // Now, proceed with the Last.fm API call using the determined username
+        const apiKey = process.env.LASTFM_API_KEY;
+        const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
+        
+        try {
+            const response = await fetch(apiUrl);
+            const data = await response.json();
 
-        // Send the embed back to Discord
-        return NextResponse.json({
-        type: InteractionResponseType.ChannelMessageWithSource,
-        data: {
-            embeds: [embed],
-        },
+            // Handle case where Last.fm user doesn't exist or has no tracks
+            if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: { content: `Could not find any recent tracks for user \`${lastfmUsername}\`. Make sure the profile is public and the username is correct.` },
+            });
+            }
+            
+            const track = data.recenttracks.track[0];
+
+            // Check if the user is currently playing a song
+            if (!track['@attr'] || !track['@attr'].nowplaying) {
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: { content: `\`${lastfmUsername}\` is not listening to anything right now.` },
+            });
+            }
+
+            const artist = track.artist['#text'];
+            const trackName = track.name;
+            // Find the 'extralarge' image, or fall back to the last available image as a safety measure
+            const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
+            
+            // Handle the rare case where a track has no images
+            if (!albumArtUrl) {
+                return NextResponse.json({
+                    type: InteractionResponseType.ChannelMessageWithSource,
+                    data: { content: `Could not find album art for "${trackName}" by ${artist}.` },
+                });
+            }
+            
+            // Create the Discord Embed to display the information cleanly
+            const embed = {
+            title: trackName,
+            description: `by **${artist}**`,
+            color: 0xd51007, // Last.fm red
+            footer: {
+                text: `Currently listening: ${lastfmUsername}`,
+                icon_url: 'https://cdn.icon-icons.com/icons2/2345/PNG/512/lastfm_logo_icon_142718.png'
+            }
+            };
+
+            // 2. Send a response containing BOTH the image URL in `content` and the embed
+            return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: albumArtUrl, // Discord will render this URL as an image
+                embeds: [embed],      // The embed with text info will appear below the image
+            },
         });
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({
-        type: InteractionResponseType.ChannelMessageWithSource,
-        data: { content: 'An error occurred while fetching data from Last.fm.' },
-        });
-    }
+
+        } catch (error) {
+            console.error(error);
+            return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: { content: 'An error occurred while fetching data from Last.fm.' },
+            });
+        }
     }
 }
 return new NextResponse('Unhandled interaction type', { status: 404 });

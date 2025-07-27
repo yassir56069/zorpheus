@@ -56,6 +56,8 @@ async function findCoverArt(artist: string, album: string, size: number = 1000):
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             // Use the provided size for the URL
+
+            console.log(`Successfully got album from itunes ${bestMatch.albumArtUrl}`)
             return bestMatch.artworkUrl100.replace('100x100', `${size}x${size}`);
         }
     } catch (error) {

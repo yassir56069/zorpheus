@@ -114,7 +114,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
         
-        const minTitleLength = 25;
+        const minTitleLength = 20;
         const paddingChar = '⠀'; // This is the Braille Pattern Blank character (U+2800)
 
         const paddingNeeded = Math.max(0, minTitleLength - trackName.length);

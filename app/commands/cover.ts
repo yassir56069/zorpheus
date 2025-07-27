@@ -69,6 +69,9 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
         const albumName = track.album['#text'];
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
+
+        albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
+
         if (!albumArtUrl) {
             albumArtUrl = await findCoverArt(artist, albumName);
             
@@ -89,8 +92,6 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
 
         const embed = {
             title: albumName,
-            // ✨ NEW: Add the track name to the description for more context
-            description: `**${trackName}**\n*by **${artist}***`,
             color: 0xd51007, // Last.fm red
             image: { url: albumArtUrl },
             footer: {

@@ -45,8 +45,68 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     }
 }
 
+async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
+    const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
+    if (!userAgent) {
+        console.log("MusicBrainz User-Agent not set, skipping this fallback.");
+        return null;
+    }
+
+    try {
+        // Step A: Search MusicBrainz for the release to get its ID (MBID)
+        const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
+        
+        const mbResponse = await fetch(musicBrainzUrl, {
+            headers: { 'User-Agent': userAgent }
+        });
+
+        if (!mbResponse.ok) {
+            console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
+            return null;
+        }
+
+        const mbData = await mbResponse.json();
+        
+        // Find the most likely match (usually the first result)
+        const release = mbData.releases?.[0];
+        const releaseId = release?.id; // This is the MBID
+
+        if (!releaseId) {
+            console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
+            return null;
+        }
+
+        // Step B: Use the release ID to get the cover art from the Cover Art Archive
+        const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
+        const caResponse = await fetch(coverArtUrl);
+        
+        // If the cover art archive returns a 404, it means no art exists for this release.
+        if (!caResponse.ok) {
+            return null;
+        }
+        
+        const caData = await caResponse.json();
+        // The API returns an array of images. We want the front cover.
+        const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
+        
+        if (frontImage?.image) {
+            console.log("Successfully got album art from Cover Art Archive.");
+            // This URL points directly to the highest-resolution image they have.
+            return frontImage.image;
+        }
+
+    } catch (error) {
+        console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
+    }
+    
+    return null;
+}
+
+
 // This helper function remains unchanged
-async function findCoverArt(artist: string, album: string, size: number = 1000): Promise<string | null> {
+async function findCoverArt(artist: string, album: string): Promise<string | null> {
+    
+    // --- Fallback 1: iTunes API ---
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
@@ -55,14 +115,24 @@ async function findCoverArt(artist: string, album: string, size: number = 1000):
 
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
-            // Use the provided size for the URL
-
-            console.log(`Successfully got album from itunes ${bestMatch.albumArtUrl}`)
-            return bestMatch.artworkUrl100.replace('100x100', `${size}x${size}`);
+            const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
+            console.log(`Successfully got album art from iTunes. ${highResUrl}`);
+            // return highResUrl;
         }
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
     }
+
+    // --- Fallback 2: MusicBrainz / Cover Art Archive ---
+    // This will only run if iTunes returned nothing.
+    console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
+    const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
+    if (musicBrainzArt) {
+        return musicBrainzArt;
+    }
+
+    // If all fallbacks have failed, return null.
+    console.log("All fallbacks failed.");
     return null;
 }
 
@@ -199,7 +269,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         
         const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
 
-        if (!isLastFmUrlValid) {
+        if (isLastFmUrlValid) {
             console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
         }

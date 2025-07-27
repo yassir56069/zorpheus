@@ -141,7 +141,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
             iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
         }
         
-        albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
+        albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
 
         console.log(`image url: ${albumArtUrl}`);
         const embed = {
@@ -219,7 +219,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
 
-        albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/");
+        albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
         
         const embed = {
             title: albumName,

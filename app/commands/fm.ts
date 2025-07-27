@@ -108,14 +108,14 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             // ✨ ADDED: An array of fields to structure the data
             fields: [
                 {
-                    name: 'Artist', // The title of the field
-                    value: `**${artist}**`, // The content of the field
-                    inline: false, // `false` ensures it takes up a full row
+                    name: '', // The title of the field
+                    value: `-# **${artist}**`, // The content of the field
+                    inline: true, // `false` ensures it takes up a full row
                 },
                 {
-                    name: 'Album',
-                    value: `**${albumName}**`,
-                    inline: false,
+                    name: '',
+                    value: `-#**${albumName}**`,
+                    inline: true,
                 },
             ],
             footer: {

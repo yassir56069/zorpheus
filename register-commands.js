@@ -18,7 +18,7 @@ const commands = [
     description: 'Register your Last.fm username with the bot.',
     options: [
       {
-        name: 'username',
+        name: '👤 Username',
         description: 'Your Last.fm username.',
         type: 3, // STRING
         required: true,
@@ -27,11 +27,11 @@ const commands = [
   },
   {
     name: 'cover',
-    description: 'Fetches the album cover for your currently playing song on Last.fm.',
+    description: 'Displays album art. Searches for an album or shows your last played track.',
     options: [
       {
-        name: 'username',
-        description: 'Last.fm username.',
+        name: '🔎 Search',
+        description: 'Search for an album on Last.fm.',
         type: 3, // Type 3 corresponds to STRING
         required: false,
       },

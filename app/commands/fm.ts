@@ -94,10 +94,17 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
         
+        const minTitleLength = 60;
+        const paddingChar = '⠀'; // This is the Braille Pattern Blank character (U+2800)
+
+        const paddingNeeded = Math.max(0, minTitleLength - trackName.length);
+        const padding = paddingChar.repeat(paddingNeeded);
+        const paddedTitle = trackName + padding;
+
         // ✨ NEW EMBED STRUCTURE
         const embed = {
             // The title remains the track name
-            title: `${trackName}`,
+            title: paddedTitle, 
             // The description can be removed or left empty
             description: "", 
             color: dominantColor || 0xd51007,

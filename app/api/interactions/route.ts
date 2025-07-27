@@ -150,7 +150,7 @@ export async function POST(req: Request) {
             
 
             // Handle the rare case where lastfm fails 
-            if (albumArtUrl) {
+            if (!albumArtUrl) {
                 albumArtUrl = await findCoverArt(artist, albumName, trackName);
             }
             

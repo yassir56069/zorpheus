@@ -74,10 +74,30 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
+
+                let formattedDuration = "";
+        try {
+            const trackInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&format=json`;
+            const trackInfoResponse = await fetch(trackInfoUrl);
+            const trackInfoData = await trackInfoResponse.json();
+
+            // The duration is in milliseconds in this endpoint.
+            const durationMs = trackInfoData?.track?.duration;
+            if (durationMs && parseInt(durationMs) > 0) {
+                const durationSeconds = Math.floor(parseInt(durationMs) / 1000);
+                const minutes = Math.floor(durationSeconds / 60);
+                const seconds = durationSeconds % 60;
+                // Pad seconds with a leading zero if needed (e.g., 3:05)
+                formattedDuration = `🕒 **${minutes}:${seconds.toString().padStart(2, '0')}**`;
+            }
+        } catch (e) {
+            console.error("Could not fetch track duration:", e);
+            // Fail silently and just omit the duration if the API call fails.
+        }
         
         // For a thumbnail, we want a smaller image. 'large' (174x174) is a good choice.
-        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
-        || track.image.find((img: { size: string; }) => img.size === 'medium')?.['#text']
+        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+        || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
         || track.image[track.image.length - 1]?.['#text'];
 
         // If for some reason there's absolutely no image, we can still proceed
@@ -94,7 +114,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
         
-        const minTitleLength = 40;
+        const minTitleLength = 30;
         const paddingChar = '⠀'; // This is the Braille Pattern Blank character (U+2800)
 
         const paddingNeeded = Math.max(0, minTitleLength - trackName.length);
@@ -106,7 +126,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             // The title remains the track name
             title: paddedTitle, 
             // The description can be removed or left empty
-            description: "", 
+            description: "⠀", 
             color: dominantColor || 0xd51007,
             // The thumbnail stays the same
             thumbnail: {

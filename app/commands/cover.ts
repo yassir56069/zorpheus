@@ -8,6 +8,42 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
+/**
+ * Checks if an image URL is valid and responsive within a given timeout.
+ * @param url The URL of the image to check.
+ * @param timeout The timeout in milliseconds.
+ * @returns True if the image is valid and responds in time, false otherwise.
+ */
+async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
+    if (!url) {
+        return false;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+        // We use a 'HEAD' request because we only care if the image exists,
+        // not about its content. This is much faster than a 'GET'.
+        const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+        
+        // Clear the timeout if the request completes successfully
+        clearTimeout(timeoutId);
+
+        // response.ok is true for status codes 200-299
+        return response.ok;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === 'AbortError') {
+            // This happens when our timeout is triggered
+            console.log(`Image URL timed out: ${url}`);
+        } else {
+            // This can happen for other network reasons (CORS, DNS errors, etc.)
+            console.error(`Error fetching image URL head: ${url}`, error);
+        }
+        return false;
+    }
+}
 
 // This helper function remains unchanged
 async function findCoverArt(artist: string, album: string, size: number = 1000): Promise<string | null> {
@@ -77,11 +113,16 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         const album = data.results.albummatches.album[0];
         const albumName = album.name;
         const artist = album.artist;
+
         let albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || album.image[album.image.length - 1]?.['#text'];
         
-        if (!albumArtUrl) {
+        const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
+
+        if (!isLastFmUrlValid) {
+            console.log('Last.fm URL for search result is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
-        }
+        } 
+
 
         if (!albumArtUrl) {
             return NextResponse.json({
@@ -149,10 +190,12 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const albumName = track.album['#text'];
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
         
-        if (!albumArtUrl) {
+        const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
+
+        if (!isLastFmUrlValid) {
+            console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
         }
-
         if (!albumArtUrl) {
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,

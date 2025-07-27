@@ -118,14 +118,15 @@ export async function POST(req: Request) {
         }
 
           // Define the function to send the follow-up embed
-            const sendFollowup = async (embed: any) => {
-                const followupUrl = `https://discord.com/api/v10/webhooks/${application_id}/${interaction_token}`;
-                await fetch(followupUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ embeds: [embed] }),
-                });
-            };
+          // eslint-disable-next-line
+        const sendFollowup = async (embed: { title: any; description: string; color: number; footer: { text: string; icon_url: string; }; }) => {
+            const followupUrl = `https://discord.com/api/v10/webhooks/${application_id}/${interaction_token}`;
+            await fetch(followupUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [embed] }),
+            });
+        };
 
         
         // Now, proceed with the Last.fm API call using the determined username

@@ -9,6 +9,6 @@ export async function handlePing(interaction: APIChatInputApplicationCommandInte
 
     return NextResponse.json({
         type: InteractionResponseType.ChannelMessageWithSource,
-        data: { content: ` Βơ⟟η𝙶! ƶơơᨓ! \n-# \`(${latency}ms.)\`` },
+        data: { content: `BOING!! ZOOM!! \n-# ${latency}ms.` },
     });
 }

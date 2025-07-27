@@ -88,7 +88,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
                 const minutes = Math.floor(durationSeconds / 60);
                 const seconds = durationSeconds % 60;
                 // Pad seconds with a leading zero if needed (e.g., 3:05)
-                formattedDuration = `ೱ (${minutes}:${seconds.toString().padStart(2, '0')})`;
+                formattedDuration = `⧗ (${minutes}:${seconds.toString().padStart(2, '0')})`;
             }
         } catch (e) {
             console.error("Could not fetch track duration:", e);
@@ -136,7 +136,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             fields: [
                 {
                     name: '', // The title of the field
-                    value: `-# ${formattedDuration}`, // The content of the field
+                    value: `${formattedDuration}`, // The content of the field
                     inline: true, // `false` ensures it takes up a full row
                 },
             ],

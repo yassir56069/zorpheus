@@ -35,7 +35,7 @@ const commands = [
     "options": [
         {
         "name": "key",
-        "description": "The specific developer command to run (e.g., 'test-cover', 'test-ping').",
+        "description": "The specific developer command to run",
         "type": 3, // String type
         "required": true
         },

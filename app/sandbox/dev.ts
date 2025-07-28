@@ -17,15 +17,15 @@ export async function handleDev(interaction: APIChatInputApplicationCommandInter
     const developerIds = (process.env.DEVELOPER_IDS || '').split(',');
     const callingUserId = interaction.member?.user?.id;
 
-    if (!callingUserId || !developerIds.includes(callingUserId)) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: {
-                content: '🚫 This command is restricted to developers only.',
-                flags: 1 << 6, // Ephemeral message
-            },
-        });
-    }
+    // if (!callingUserId || !developerIds.includes(callingUserId)) {
+    //     return NextResponse.json({
+    //         type: InteractionResponseType.ChannelMessageWithSource,
+    //         data: {
+    //             content: '🚫 This command is restricted to developers only.',
+    //             flags: 1 << 6, // Ephemeral message
+    //         },
+    //     });
+    // }
 
     // --- 2. Get the Command Key and Value ---
     const options = interaction.data.options as APIApplicationCommandInteractionDataStringOption[];

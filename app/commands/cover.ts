@@ -218,7 +218,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         if (!albumArtUrl) {
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH',
-                body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
+                body: JSON.stringify({ content: `Could not find album art for **${albumName}** by **${artist}**.` }),
                 headers: {
                     'Content-Type': 'application/json',
                 },

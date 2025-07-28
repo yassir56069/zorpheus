@@ -102,7 +102,6 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
     return null;
 }
 
-
 // This helper function remains unchanged
 async function findCoverArt(artist: string, album: string): Promise<string | null> {
     
@@ -136,7 +135,6 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
     return null;
 }
 
-
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
@@ -164,10 +162,19 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
-/**
- * Handles the logic when a user searches for a specific album.
- */
 async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, searchQuery: string) {
+    // Immediately defer the reply
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        body: JSON.stringify({
+            type: InteractionResponseType.DeferredChannelMessageWithSource,
+        }),
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
+    // Now, perform all the long-running operations
     const apiKey = process.env.LASTFM_API_KEY;
     const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&album=${encodeURIComponent(searchQuery)}&api_key=${apiKey}&format=json&limit=1`;
     
@@ -176,10 +183,15 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         const data = await response.json();
 
         if (data.error || !data.results?.albummatches?.album?.[0]) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find any results for album: \`${searchQuery}\`.` },
+            // Edit the original "thinking..." message with the error
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find any results for album: \`${searchQuery}\`.` }),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
             });
+            return;
         }
         
         const album = data.results.albummatches.album[0];
@@ -199,15 +211,19 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
 
 
         if (!albumArtUrl) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find album art for **${albumName}** by **${artist}**.` },
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find album art for **${albumName}** by **${artist}**.` }),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
             });
+            return;
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
-        let iconUrl = `${baseUrl}/api/recolor-icon?color=d51007`; // Default grey for search
+        let iconUrl = `${baseUrl}/api/recolor-icon?color=d51007`;
         if (dominantColor) {
             const hexColor = dominantColor.toString(16).padStart(6, '0');
             iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
@@ -215,7 +231,6 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         
         albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
 
-        console.log(`image url: ${albumArtUrl}`);
         const embed = {
             title: albumName,
             description: `-# by **${artist}**`,
@@ -227,24 +242,39 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
             }
         };
         
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { embeds: [embed] },
+        // Edit the original message with the final embed
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ embeds: [embed] }),
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
 
     } catch (error) {
         console.error(error);
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: 'An error occurred while fetching data from Last.fm.' },
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ content: 'An error occurred while fetching data from Last.fm.' }),
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
     }
 }
 
-/**
- * Handles the logic for fetching a user's last scrobbled track.
- */
 async function handleUserScrobble(interaction: APIChatInputApplicationCommandInteraction, lastfmUsername: string) {
+    // Immediately defer the reply
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        body: JSON.stringify({
+            type: InteractionResponseType.DeferredChannelMessageWithSource,
+        }),
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
     const apiKey = process.env.LASTFM_API_KEY;
     const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
     
@@ -253,10 +283,14 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const data = await response.json();
 
         if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` },
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` }),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
             });
+            return;
         }
         
         const track = data.recenttracks.track[0];
@@ -274,17 +308,21 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
             albumArtUrl = await findCoverArt(artist, albumName);
         }
 
-        if (albumArtUrl == 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') // lastfm placeholder cover image 
+        if (albumArtUrl == 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png')
         {
             console.log('LastFM returned placeholder, trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
         }
 
         if (!albumArtUrl) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find album art for **${trackName}** by **${artist}**.` },
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
             });
+            return;
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);
@@ -311,17 +349,23 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
             }
         };
 
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { embeds: [embed] },
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ embeds: [embed] }),
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
 
 
     } catch (error) {
         console.error(error);
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: 'An error occurred while fetching data from Last.fm.' },
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ content: 'An error occurred while fetching data from Last.fm.' }),
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
     }
 }
@@ -333,7 +377,8 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
     if (options && options.length > 0) {
         const searchOption = options[0] as APIApplicationCommandInteractionDataStringOption;
         if (searchOption.name === 'search') {
-            return handleAlbumSearch(interaction, searchOption.value);
+            await handleAlbumSearch(interaction, searchOption.value);
+            return new NextResponse(null, { status: 204 }); // We've handled the response, so just return a success status
         }
     }
 
@@ -351,5 +396,6 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
         });
     }
     
-    return handleUserScrobble(interaction, lastfmUsername);
+    await handleUserScrobble(interaction, lastfmUsername);
+    return new NextResponse(null, { status: 204 });
 }

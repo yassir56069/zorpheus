@@ -29,6 +29,18 @@ const commands = [
       },
     ],
   },
+    {
+    name: 'dev',
+    description: 'For development only',
+    options: [
+      {
+        name: 'search',
+        description: 'search for an album on last.fm.',
+        type: 3, // Type 3 corresponds to STRING
+        required: false,
+      },
+    ],
+  },
   {
     name: 'cover',
     description: 'Displays album art. Searches for an album or shows your last played track.',

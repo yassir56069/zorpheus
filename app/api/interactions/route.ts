@@ -12,6 +12,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
 import { handleCover } from '@/app/commands/cover';
+import { handleCoverDev } from '@/app/commands/cover.dev';
 import { handleFm } from '@/app/commands/fm';
 
 export async function POST(req: Request) {
@@ -38,6 +39,9 @@ export async function POST(req: Request) {
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
+            case 'dev':
+                return handleCoverDev(interaction as APIChatInputApplicationCommandInteraction);
+
             default:
                 return new NextResponse('Unknown command', { status: 400 });
         }

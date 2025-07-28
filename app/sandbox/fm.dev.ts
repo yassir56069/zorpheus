@@ -250,15 +250,20 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
 
         if (!isLastFmUrlValid) {
-            console.log('Last.fm URL for search result is invalid or timed out. Trying fallback...');
+            console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
-        } 
+        }
 
+        if (albumArtUrl == 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') // lastfm placeholder image
+        {
+            console.log('LastFM returned placeholder, trying fallback...');
+            albumArtUrl = await findCoverArt(artist, albumName);
+        }
 
         if (!albumArtUrl) {
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH',
-                body: JSON.stringify({ content: `Could not find album art for **${albumName}** by **${artist}**.` }),
+                body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
                 headers: {
                     'Content-Type': 'application/json',
                 },

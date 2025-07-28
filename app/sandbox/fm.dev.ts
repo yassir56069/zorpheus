@@ -10,16 +10,147 @@ import { Vibrant } from 'node-vibrant/node';
 
 // --- HELPER FUNCTIONS (These can remain unchanged) ---
 
+/**
+ * Checks if an image URL is valid and responsive within a given timeout.
+ * @param url The URL of the image to check.
+ * @param timeout The timeout in milliseconds.
+ * @returns True if the image is valid and responds in time, false otherwise.
+ */
+async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
+    if (!url) {
+        return false;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+        // We use a 'HEAD' request because we only care if the image exists,
+        // not about its content. This is much faster than a 'GET'.
+        const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+        
+        // Clear the timeout if the request completes successfully
+        clearTimeout(timeoutId);
+
+        // response.ok is true for status codes 200-299
+        return response.ok;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === 'AbortError') {
+            // This happens when our timeout is triggered
+            console.log(`Image URL timed out: ${url}`);
+        } else {
+            // This can happen for other network reasons (CORS, DNS errors, etc.)
+            console.error(`Error fetching image URL head: ${url}`, error);
+        }
+        return false;
+    }
+}
+async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {  
+    const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
+    if (!userAgent) {
+        console.log("MusicBrainz User-Agent not set, skipping this fallback.");
+        return null;
+    }
+
+    try {
+        // Step A: Search MusicBrainz for the release to get its ID (MBID)
+        const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
+        
+        const mbResponse = await fetch(musicBrainzUrl, {
+            headers: { 'User-Agent': userAgent }
+        });
+
+        if (!mbResponse.ok) {
+            console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
+            return null;
+        }
+
+        const mbData = await mbResponse.json();
+        
+        // Find the most likely match (usually the first result)
+        const release = mbData.releases?.[0];
+        const releaseId = release?.id; // This is the MBID
+
+        if (!releaseId) {
+            console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
+            return null;
+        }
+
+        // Step B: Use the release ID to get the cover art from the Cover Art Archive
+        const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
+        const caResponse = await fetch(coverArtUrl);
+        
+        // If the cover art archive returns a 404, it means no art exists for this release.
+        if (!caResponse.ok) {
+            return null;
+        }
+        
+        const caData = await caResponse.json();
+        // The API returns an array of images. We want the front cover.
+        const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
+        
+        if (frontImage?.image) {
+            console.log("Successfully got album art from Cover Art Archive.");
+            // This URL points directly to the highest-resolution image they have.
+            return frontImage.image;
+        }
+
+    } catch (error) {
+        console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
+    }
+    
+    return null;
+}
+// This helper function remains unchanged
+async function findCoverArt(artist: string, album: string): Promise<string | null> {
+    
+    // --- Fallback 1: iTunes API ---
+    try {
+        const searchTerm = `${artist} ${album}`;
+        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
+        const response = await fetch(itunesUrl);
+        const data = await response.json();
+
+        if (data.resultCount > 0) {
+            const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
+            const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
+            console.log(`Successfully got album art from iTunes. ${highResUrl}`);
+            return highResUrl;
+        }
+    } catch (error) {
+        console.error("Error fetching from iTunes:", error);
+    }
+
+    // --- Fallback 2: MusicBrainz / Cover Art Archive ---
+    // This will only run if iTunes returned nothing.
+    console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
+    const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
+    if (musicBrainzArt) {
+        return musicBrainzArt;
+    }
+
+    // If all fallbacks have failed, return null.
+    console.log("All fallbacks failed.");
+    return null;
+}
+
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
+        // We'll prioritize the "Vibrant" swatch, but you can choose others
+        // like Muted, DarkVibrant, etc.
         const vibrantSwatch = palette.Vibrant || palette.Muted || palette.LightVibrant;
-        if (vibrantSwatch?.hex) {
+
+        if (vibrantSwatch && vibrantSwatch.hex) {
+            // Discord requires the color as a decimal (integer), not a hex string.
+            // We parse the hex string (e.g., "#RRGGBB") into an integer.
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
     } catch (error) {
         console.error("Error getting dominant color:", error);
     }
+    // Return null if we fail, so we can use a fallback color
     return null;
 }
 
@@ -27,9 +158,9 @@ const getBaseUrl = () => {
     if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
         return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     }
-    return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // Use the public URL from your .env file for local dev or previews
+    return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
-
 
 // --- MAIN COMMAND HANDLER (REVISED) ---
 
@@ -111,9 +242,30 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             console.error("Could not fetch track duration:", e);
         }
 
-        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
             || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
             || track.image[track.image.length - 1]?.['#text'];
+
+
+        const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
+
+        if (!isLastFmUrlValid) {
+            console.log('Last.fm URL for search result is invalid or timed out. Trying fallback...');
+            albumArtUrl = await findCoverArt(artist, albumName);
+        } 
+
+
+        if (!albumArtUrl) {
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find album art for **${albumName}** by **${artist}**.` }),
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+            return;
+        }
+
 
         const dominantColor = albumArtUrl ? await getDominantColor(albumArtUrl) : null;
         

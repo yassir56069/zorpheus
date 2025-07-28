@@ -38,11 +38,13 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     let lastfmUsername: string | null = null;
     const discordUserId = interaction.member!.user.id;
 
-    if (interaction.data.options && interaction.data.options.length > 0) {
-        const usernameOption = interaction.data.options[0] as APIApplicationCommandInteractionDataStringOption;
-        lastfmUsername = usernameOption.value;
-    } else {
-        lastfmUsername = await kv.get(discordUserId) as string | null;
+    lastfmUsername = await kv.get(discordUserId) as string | null;
+
+    if (!lastfmUsername){
+        if (interaction.data.options && interaction.data.options.length > 0) {
+            const usernameOption = interaction.data.options[0] as APIApplicationCommandInteractionDataStringOption;
+            lastfmUsername = usernameOption.value;
+        } 
     }
 
     // --- Step 2: Handle Unregistered User (Fast Path) ---

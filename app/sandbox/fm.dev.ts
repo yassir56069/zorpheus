@@ -64,7 +64,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+            type: InteractionResponseType.DeferredChannelMessageWithSource,
         }),
     });
 

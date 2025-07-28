@@ -53,7 +53,7 @@ export async function handleDev(interaction: APIChatInputApplicationCommandInter
             // For now, we'll assume it can run without extra options for a default test.
             return handleCover(interaction);
 
-        case 'test-cover':
+        case 'test-fm':
             // You might need to adjust the interaction object passed to handleCover
             // if it expects specific options that aren't present in the /dev command.
             // For now, we'll assume it can run without extra options for a default test.

@@ -8,7 +8,7 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
-// --- HELPER FUNCTIONS (Copied from cover.ts for consistency) ---
+// --- HELPER FUNCTIONS (These can remain unchanged) ---
 
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
@@ -31,21 +31,22 @@ const getBaseUrl = () => {
 };
 
 
-// --- MAIN COMMAND HANDLER ---
+// --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
+    // --- Step 1: Resolve Username (Fast Operation) ---
     let lastfmUsername: string | null = null;
     const discordUserId = interaction.member!.user.id;
 
-    // Check if a username was provided as an option
     if (interaction.data.options && interaction.data.options.length > 0) {
         const usernameOption = interaction.data.options[0] as APIApplicationCommandInteractionDataStringOption;
         lastfmUsername = usernameOption.value;
     } else {
-        // If not, fall back to the registered username in KV
         lastfmUsername = await kv.get(discordUserId) as string | null;
     }
 
+    // --- Step 2: Handle Unregistered User (Fast Path) ---
+    // If no username is found, we can respond immediately with an ephemeral message.
     if (!lastfmUsername) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
@@ -56,18 +57,34 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         });
     }
 
-    const apiKey = process.env.LASTFM_API_KEY;
-    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
+    // --- Step 3: Defer the Interaction (Slow Path) ---
+    // A username exists, so we will be performing slow operations.
+    // Immediately send a "thinking..." state to Discord.
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+        }),
+    });
 
+    // --- Step 4: Perform Long-Running Operations ---
+    const apiKey = process.env.LASTFM_API_KEY;
+    const webhookUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
+    
     try {
+        const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
         const response = await fetch(apiUrl);
         const data = await response.json();
 
+        // Handle case where user or tracks are not found
         if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` },
+            await fetch(webhookUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` }),
             });
+            return new NextResponse(null, { status: 204 });
         }
 
         const track = data.recenttracks.track[0];
@@ -75,33 +92,27 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const trackName = track.name;
         const albumName = track.album['#text'];
 
-                let formattedDuration = "";
+        // Fetch optional track duration
+        let formattedDuration = "";
         try {
             const trackInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&format=json`;
             const trackInfoResponse = await fetch(trackInfoUrl);
             const trackInfoData = await trackInfoResponse.json();
-
-            // The duration is in milliseconds in this endpoint.
             const durationMs = trackInfoData?.track?.duration;
             if (durationMs && parseInt(durationMs) > 0) {
                 const durationSeconds = Math.floor(parseInt(durationMs) / 1000);
                 const minutes = Math.floor(durationSeconds / 60);
                 const seconds = durationSeconds % 60;
-                // Pad seconds with a leading zero if needed (e.g., 3:05)
                 formattedDuration = `-# ⏱ (${minutes}:${seconds.toString().padStart(2, '0')})`;
             }
         } catch (e) {
             console.error("Could not fetch track duration:", e);
-            // Fail silently and just omit the duration if the API call fails.
         }
-        
-        // For a thumbnail, we want a smaller image. 'large' (174x174) is a good choice.
-        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
-        || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
-        || track.image[track.image.length - 1]?.['#text'];
 
-        // If for some reason there's absolutely no image, we can still proceed
-        // The thumbnail just won't be displayed
+        const albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+            || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
+            || track.image[track.image.length - 1]?.['#text'];
+
         const dominantColor = albumArtUrl ? await getDominantColor(albumArtUrl) : null;
         
         const baseUrl = getBaseUrl();
@@ -115,39 +126,41 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
         
         const minTitleLength = 20;
-        const paddingChar = '⠀'; // This is the Braille Pattern Blank character (U+2800)
-
+        const paddingChar = '⠀';
         const paddingNeeded = Math.max(0, minTitleLength - trackName.length);
         const padding = paddingChar.repeat(paddingNeeded);
         const paddedTitle = trackName + padding;
 
-        // ✨ NEW EMBED STRUCTURE
         const embed = {
-            // The title remains the track name
-            title: paddedTitle, 
-            // The description can be removed or left empty
-            description: `${artist} •  ${albumName} \n${formattedDuration}`, 
+            title: paddedTitle,
+            description: `${artist} •  ${albumName} \n${formattedDuration}`,
             color: dominantColor || 0xd51007,
-            // The thumbnail stays the same
-            thumbnail: {
-                url: albumArtUrl,
-            },
+            thumbnail: { url: albumArtUrl },
             footer: {
                 text: footerText,
-                icon_url: iconUrl,  
+                icon_url: iconUrl,
             },
         };
 
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { embeds: [embed] },
+        // --- Step 5: Send the Final Follow-up Message ---
+        await fetch(webhookUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [embed] }),
         });
 
     } catch (error) {
         console.error(error);
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: 'An error occurred while fetching data from Last.fm.' },
+        // Send a generic error message if anything in the try block fails
+        await fetch(webhookUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: 'An error occurred while fetching data from Last.fm.' }),
         });
     }
+
+    // --- Step 6: Return a final response to Vercel ---
+    // We've already handled responding to Discord via fetch.
+    // Now we just need to tell Vercel the function is done.
+    return new NextResponse(null, { status: 204 });
 };

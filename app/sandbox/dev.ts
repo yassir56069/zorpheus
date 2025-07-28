@@ -7,6 +7,7 @@ import {
 
 // Import your testable commands here
 import { handleCover } from './cover.dev';
+import { handleFm } from './fm.dev';
 
 /**
  * Routes developer commands based on a key.
@@ -17,15 +18,15 @@ export async function handleDev(interaction: APIChatInputApplicationCommandInter
     const developerIds = (process.env.DEVELOPER_IDS || '').split(',');
     const callingUserId = interaction.member?.user?.id;
 
-    // if (!callingUserId || !developerIds.includes(callingUserId)) {
-    //     return NextResponse.json({
-    //         type: InteractionResponseType.ChannelMessageWithSource,
-    //         data: {
-    //             content: '🚫 This command is restricted to developers only.',
-    //             flags: 1 << 6, // Ephemeral message
-    //         },
-    //     });
-    // }
+    if (!callingUserId || !developerIds.includes(callingUserId)) {
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: '🚫 This command is restricted to developers only.',
+                flags: 1 << 6, // Ephemeral message
+            },
+        });
+    }
 
     // --- 2. Get the Command Key and Value ---
     const options = interaction.data.options as APIApplicationCommandInteractionDataStringOption[];
@@ -52,6 +53,11 @@ export async function handleDev(interaction: APIChatInputApplicationCommandInter
             // For now, we'll assume it can run without extra options for a default test.
             return handleCover(interaction);
 
+        case 'test-cover':
+            // You might need to adjust the interaction object passed to handleCover
+            // if it expects specific options that aren't present in the /dev command.
+            // For now, we'll assume it can run without extra options for a default test.
+            return handleFm(interaction);
 
         // Add more test cases here
         // case 'test-new-feature':

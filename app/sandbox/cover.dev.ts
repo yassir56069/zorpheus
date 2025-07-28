@@ -370,7 +370,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
     }
 }
 
-export async function handleCoverDev(interaction: APIChatInputApplicationCommandInteraction) {
+export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
     const options = interaction.data.options;
 
     // --- Search Mode ---

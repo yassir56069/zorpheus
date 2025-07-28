@@ -30,17 +30,23 @@ const commands = [
     ],
   },
     {
-    name: 'dev',
-    description: 'For development only',
-    options: [
-      {
-        name: 'search',
-        description: 'search for an album on last.fm.',
-        type: 3, // Type 3 corresponds to STRING
-        required: false,
-      },
-    ],
-  },
+    "name": "dev",
+    "description": "Developer-only commands for testing.",
+    "options": [
+        {
+        "name": "key",
+        "description": "The specific developer command to run (e.g., 'test-cover', 'test-ping').",
+        "type": 3, // String type
+        "required": true
+        },
+        {
+        "name": "value",
+        "description": "Optional value for the test command.",
+        "type": 3, // String type
+        "required": false
+        }
+    ]
+    },
   {
     name: 'cover',
     description: 'Displays album art. Searches for an album or shows your last played track.',

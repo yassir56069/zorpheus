@@ -12,8 +12,10 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
 import { handleCover } from '@/app/commands/cover';
-import { handleCoverDev } from '@/app/commands/cover.dev';
 import { handleFm } from '@/app/commands/fm';
+
+// development 
+import { handleDev } from '@/app/sandbox/dev';
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':
-                return handleCoverDev(interaction as APIChatInputApplicationCommandInteraction);
+                return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 
             default:
                 return new NextResponse('Unknown command', { status: 400 });

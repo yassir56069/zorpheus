@@ -45,7 +45,7 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     }
 }
 
-async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
+async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {  
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) {
         console.log("MusicBrainz User-Agent not set, skipping this fallback.");
@@ -273,6 +273,13 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
             console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
             albumArtUrl = await findCoverArt(artist, albumName);
         }
+
+        if (albumArtUrl == 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') // lastfm placeholder cover image 
+        {
+            console.log('LastFM returned placeholder, trying fallback...');
+            albumArtUrl = await findCoverArt(artist, albumName);
+        }
+
         if (!albumArtUrl) {
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,

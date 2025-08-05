@@ -8,10 +8,11 @@ import {
     ButtonStyle,
 } from 'discord-api-types/v10';
 
+// A simple promise-based delay function.
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Handles the initial `/countdown` command.
- * @param interaction The chat input command interaction.
- * @returns A NextResponse with the initial embed and buttons.
  */
 export function handleCountdown(interaction: APIChatInputApplicationCommandInteraction) {
     return NextResponse.json({
@@ -47,127 +48,99 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
     });
 }
 
-/**
- * Edits the original interaction response using a webhook PATCH request.
- * @param token The interaction token.
- * @param applicationId The application ID.
- * @param data The new message data to patch.
- */
-async function editOriginalResponse(token: string, applicationId: string, data: { embeds: { title: string; description: string; color: number; }[] | { title: string; description: string; color: number; }[] | { title: string; description: string; color: number; }[]; components?: never[]; }) {
-    const endpoint = `https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`;
-
-    // We use a fetch request to the webhook to edit the message.
-    // This is how you update a message after the initial response has been sent.
-    const res = await fetch(endpoint, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-    });
-
-    if (!res.ok) {
-        console.error(`Failed to edit original response: ${res.status}`);
-        const errorText = await res.text();
-        console.error(errorText);
-    }
-}
-
-
-/**
- * A simple promise-based delay function.
- * @param ms Milliseconds to wait.
- */
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-
-/**
- * Runs the countdown logic asynchronously.
- * This function is designed to be called without being awaited ("fire and forget").
- * @param token The interaction token.
- * @param applicationId The application ID.
- */
-async function runCountdown(token: string, applicationId: string) {
-    try {
-        for (let i = 5; i > 0; i--) {
-            await editOriginalResponse(token, applicationId, {
-                embeds: [{
-                    title: 'Countdown',
-                    description: `**${i}**`,
-                    color: 0xfee75c, // Yellow
-                }],
-                components: [], // Remove buttons after starting
-            });
-            await wait(1000); // Wait for 1 second
-        }
-
-        // Final message
-        await editOriginalResponse(token, applicationId, {
-            embeds: [{
-                title: 'Countdown Complete',
-                description: '**Go!**',
-                color: 0x57f287, // Green
-            }],
-        });
-    } catch (error) {
-        console.error('Countdown failed:', error);
-        // If the countdown fails, edit the message to show an error
-        await editOriginalResponse(token, applicationId, {
-            embeds: [{
-                title: 'Countdown Failed',
-                description: 'An error occurred during the countdown.',
-                color: 0xed4245, // Red
-            }],
-            components: [],
-        });
-    }
-}
-
 
 /**
  * Handles the button interactions for the countdown command.
- * @param interaction The button component interaction.
+ * This function will now perform the ENTIRE countdown.
  */
-export function handleCountdownInteraction(interaction: APIMessageComponentButtonInteraction) {
+export async function handleCountdownInteraction(interaction: APIMessageComponentButtonInteraction): Promise<NextResponse> {
     const { custom_id } = interaction.data;
-    const { token, application_id } = interaction;
-
-    if (custom_id === 'start_countdown') {
-        // --- THIS IS THE KEY CHANGE ---
-        // We do NOT await runCountdown. We call it, and it runs in the background.
-        // The serverless function returns a response to Discord immediately,
-        // allowing the async countdown to complete without timing out.
-        runCountdown(token, application_id);
-
-        // Acknowledge the button press immediately so Discord knows we received it.
-        // This stops the "interaction failed" message on the button itself.
-        return NextResponse.json({
-             type: InteractionResponseType.UpdateMessage,
-             data: {
-                embeds: [{
-                    title: 'Countdown',
-                    description: 'Starting...',
-                    color: 0xfee75c,
-                }],
-                components: []
-             }
-        });
-    }
 
     if (custom_id === 'cancel_countdown') {
-        // This is a final state, so we can just update the message directly.
-        return NextResponse.json({
+        // This is a simple, immediate update. This logic is fine.
+        return new NextResponse(JSON.stringify({
             type: InteractionResponseType.UpdateMessage,
             data: {
                 embeds: [{
-                    title: 'Countdown',
-                    description: 'Countdown cancelled.',
+                    title: 'Countdown Cancelled',
+                    description: 'The countdown was cancelled by the user.',
                     color: 0xed4245, // Red
                 }],
                 components: [], // Remove buttons
             },
+        }), {
+            headers: { 'Content-Type': 'application/json' },
         });
     }
 
+    if (custom_id === 'start_countdown') {
+        const { token, application_id } = interaction;
+        const webhookUrl = `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`;
+
+        // STEP 1: Acknowledge the interaction immediately.
+        // This is the most critical step. We send a deferred update response.
+        // Discord now knows we received the click and won't time out.
+        // We MUST do this within 3 seconds.
+        await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: InteractionResponseType.DeferredMessageUpdate,
+            }),
+        });
+
+        // STEP 2: Now that we've acknowledged, we can perform the long-running task.
+        // The serverless function will stay alive to complete this block.
+        try {
+            for (let i = 5; i > 0; i--) {
+                await fetch(webhookUrl, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        embeds: [{
+                            title: 'Countdown in Progress...',
+                            description: `**${i}**`,
+                            color: 0xfee75c, // Yellow
+                        }],
+                        components: [], // Remove buttons
+                    }),
+                });
+                await wait(1000); // Wait for 1 second
+            }
+
+            // Final "Go!" message
+            await fetch(webhookUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    embeds: [{
+                        title: 'Countdown Complete!',
+                        description: '**Go!**',
+                        color: 0x57f287, // Green
+                    }],
+                }),
+            });
+
+        } catch (error) {
+            console.error('Countdown failed during webhook updates:', error);
+            // If anything goes wrong, inform the user.
+            await fetch(webhookUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: 'An error occurred during the countdown.',
+                    embeds: [],
+                    components: [],
+                }),
+            });
+        }
+        
+        // STEP 3: Return a final response to Vercel.
+        // We've already handled all communication with Discord via fetch.
+        // We just need to tell Vercel the function is done.
+        return new NextResponse(null, { status: 204 });
+    }
+
+    // Fallback for any unknown custom_id
     return new NextResponse('Unknown button interaction', { status: 400 });
 }

@@ -53,7 +53,7 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
  * @param applicationId The application ID.
  * @param data The new message data.
  */
-async function editOriginalResponse(token: string, applicationId: string, data: any) {
+async function editOriginalResponse(token: string, applicationId: string, data: { embeds: { title: string; description: string; color: number; }[] | { title: string; description: string; color: number; }[]; components?: never[]; }) {
     const endpoint = `https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`;
     
     await fetch(endpoint, {

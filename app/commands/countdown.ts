@@ -8,21 +8,17 @@ import {
     ButtonStyle,
 } from 'discord-api-types/v10';
 
-// A simple promise-based delay function.
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Handles the initial `/countdown` command.
- */
-export function handleCountdown(interaction: APIChatInputApplicationCommandInteraction) {
+// This function is fine and can remain unchanged.
+// It creates the initial message and buttons.
+export function handleCountdown(interaction: APIChatInputApplicationCommandInteraction): NextResponse {
     return NextResponse.json({
         type: InteractionResponseType.ChannelMessageWithSource,
         data: {
             embeds: [
                 {
-                    title: 'Countdown',
-                    description: 'Ready to start the countdown?',
-                    color: 0x5865f2, // Discord Blurple
+                    title: 'Countdown Test',
+                    description: 'Please press a button.',
+                    color: 0x5865f2,
                 },
             ],
             components: [
@@ -32,13 +28,13 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
                         {
                             type: ComponentType.Button,
                             style: ButtonStyle.Success,
-                            label: 'Start',
+                            label: 'Test Start',
                             custom_id: 'start_countdown',
                         },
                         {
                             type: ComponentType.Button,
                             style: ButtonStyle.Danger,
-                            label: 'Cancel',
+                            label: 'Test Cancel',
                             custom_id: 'cancel_countdown',
                         },
                     ],
@@ -50,97 +46,49 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
 
 
 /**
- * Handles the button interactions for the countdown command.
- * This function will now perform the ENTIRE countdown.
+ * A simplified handler for button interactions.
+ * This version removes ALL async logic to test the core response mechanism.
  */
-export async function handleCountdownInteraction(interaction: APIMessageComponentButtonInteraction): Promise<NextResponse> {
+export function handleCountdownInteraction(interaction: APIMessageComponentButtonInteraction): NextResponse {
     const { custom_id } = interaction.data;
 
-    if (custom_id === 'cancel_countdown') {
-        // This is a simple, immediate update. This logic is fine.
-        return new NextResponse(JSON.stringify({
-            type: InteractionResponseType.UpdateMessage,
-            data: {
-                embeds: [{
-                    title: 'Countdown Cancelled',
-                    description: 'The countdown was cancelled by the user.',
-                    color: 0xed4245, // Red
-                }],
-                components: [], // Remove buttons
-            },
-        }), {
-            headers: { 'Content-Type': 'application/json' },
-        });
-    }
+    let responseData;
 
     if (custom_id === 'start_countdown') {
-        const { token, application_id } = interaction;
-        const webhookUrl = `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`;
-
-        // STEP 1: Acknowledge the interaction immediately.
-        // This is the most critical step. We send a deferred update response.
-        // Discord now knows we received the click and won't time out.
-        // We MUST do this within 3 seconds.
-        await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: InteractionResponseType.DeferredMessageUpdate,
-            }),
-        });
-
-        // STEP 2: Now that we've acknowledged, we can perform the long-running task.
-        // The serverless function will stay alive to complete this block.
-        try {
-            for (let i = 5; i > 0; i--) {
-                await fetch(webhookUrl, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        embeds: [{
-                            title: 'Countdown in Progress...',
-                            description: `**${i}**`,
-                            color: 0xfee75c, // Yellow
-                        }],
-                        components: [], // Remove buttons
-                    }),
-                });
-                await wait(1000); // Wait for 1 second
-            }
-
-            // Final "Go!" message
-            await fetch(webhookUrl, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    embeds: [{
-                        title: 'Countdown Complete!',
-                        description: '**Go!**',
-                        color: 0x57f287, // Green
-                    }],
-                }),
-            });
-
-        } catch (error) {
-            console.error('Countdown failed during webhook updates:', error);
-            // If anything goes wrong, inform the user.
-            await fetch(webhookUrl, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: 'An error occurred during the countdown.',
-                    embeds: [],
-                    components: [],
-                }),
-            });
-        }
-        
-        // STEP 3: Return a final response to Vercel.
-        // We've already handled all communication with Discord via fetch.
-        // We just need to tell Vercel the function is done.
-        return new NextResponse(null, { status: 204 });
+        // If "start" is clicked, we will try to immediately update the message.
+        // No timer, no delay. Just a direct response.
+        responseData = {
+            embeds: [{
+                title: 'Test Succeeded!',
+                description: 'The "Start" button was successfully processed.',
+                color: 0x57f287, // Green
+            }],
+            components: [], // Remove buttons
+        };
+    } else if (custom_id === 'cancel_countdown') {
+        // If "cancel" is clicked, we do the same.
+        responseData = {
+            embeds: [{
+                title: 'Test Succeeded!',
+                description: 'The "Cancel" button was successfully processed.',
+                color: 0xed4245, // Red
+            }],
+            components: [], // Remove buttons
+        };
+    } else {
+        // Fallback for an unknown button
+        responseData = {
+            content: 'Unknown button was pressed.',
+            embeds: [],
+            components: [],
+        };
     }
-
-    // Fallback for any unknown custom_id
-    return new NextResponse('Unknown button interaction', { status: 400 });
+    
+    // We are using InteractionResponseType.UpdateMessage.
+    // This tells Discord to edit the message the button is attached to.
+    // This is the simplest and most direct way to respond to a button click.
+    return NextResponse.json({
+        type: InteractionResponseType.UpdateMessage,
+        data: responseData,
+    });
 }

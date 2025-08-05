@@ -13,6 +13,7 @@ import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
 import { handleCover } from '@/app/commands/cover';
 import { handleFm } from '@/app/commands/fm';
+import { handleCountdown } from '@/app/commands/countdown';
 
 // development 
 import { handleDev } from '@/app/sandbox/dev';
@@ -41,6 +42,9 @@ export async function POST(req: Request) {
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
+            case 'countdown': // Add case for the new command
+                return handleCountdown(interaction as APIChatInputApplicationCommandInteraction);
+            
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 

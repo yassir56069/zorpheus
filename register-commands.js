@@ -48,6 +48,10 @@ const commands = [
     ]
     },
   {
+    name: 'countdown',
+    description: 'Starts a 5-second countdown.',
+  },
+  {
     name: 'cover',
     description: 'Displays album art. Searches for an album or shows your last played track.',
     options: [

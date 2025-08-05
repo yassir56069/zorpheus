@@ -4,6 +4,7 @@ import {
     InteractionType,
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
+    APIMessageComponentButtonInteraction,
     APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { verifyDiscordRequest } from '@/utils/verify-discord-request';
@@ -13,7 +14,7 @@ import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
 import { handleCover } from '@/app/commands/cover';
 import { handleFm } from '@/app/commands/fm';
-import { handleCountdown } from '@/app/commands/countdown';
+import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
 
 // development 
 import { handleDev } from '@/app/sandbox/dev';
@@ -51,6 +52,14 @@ export async function POST(req: Request) {
             default:
                 return new NextResponse('Unknown command', { status: 400 });
         }
+    }
+
+    if (interaction.type === InteractionType.MessageComponent) {
+        // Right now, only the countdown command has buttons, so we can
+        // directly pass the interaction to its handler.
+        // If you add buttons to other commands, you'll need to add logic here
+        // to check the `custom_id` and route to the correct handler.
+        return handleCountdownInteraction(interaction as APIMessageComponentButtonInteraction);
     }
 
     return new NextResponse('Unhandled interaction type', { status: 404 });

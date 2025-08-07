@@ -224,7 +224,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
             const artist = album.artist;
             const albumName = album.name;
 
-            let albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
+            const albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
                             || album.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
                             || album.image[album.image.length - 1]?.['#text'];
             

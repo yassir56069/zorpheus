@@ -18,6 +18,7 @@ import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/cou
 
 // development 
 import { handleDev } from '@/app/sandbox/dev';
+import { handleProfile } from '@/app/commands/profile';
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
@@ -45,7 +46,8 @@ export async function POST(req: Request) {
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
             case 'countdown': // Add case for the new command
                 return handleCountdown(interaction as APIChatInputApplicationCommandInteraction);
-            
+            case 'profile': // Add case for the new command
+                return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 

@@ -47,6 +47,8 @@ const commands = [
         }
     ]
     },
+
+    
   {
     name: 'countdown',
     description: 'Starts a 5-second countdown.',
@@ -63,7 +65,20 @@ const commands = [
       },
     ],
   },
+  {
+    name: 'profile',
+    description: 'Fetches and displays a Rate Your Music user profile.',
+    options: [
+      {
+        name: 'username',
+        description: 'The Rate Your Music username. (Case Sensitive!)',
+        type: 3, // STRING
+        required: true,
+      },
+    ],
+  },
 ];
+
 
 const url = `https://discord.com/api/v10/applications/${applicationId}/commands`;
 

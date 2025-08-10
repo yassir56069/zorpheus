@@ -101,6 +101,8 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         // 4. Create the embed fields from the RSS items
         const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
             const { title = '', link, pubDate } = item;
+            
+            // eslint-disable-next-line
             const description = (item as any).content || '';
 
             let name = '';

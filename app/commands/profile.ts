@@ -101,9 +101,9 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         // 4. Create the embed fields from the RSS items
         const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
             const { title = '', link, pubDate } = item;
-            // eslint-disable-next-line
             const description = (item as any).content || '';
 
+            let name = '';
             let value = '';
             const formattedDate = formatDate(pubDate);
 
@@ -115,24 +115,25 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
 
             if (reviewedMatch) {
                 const [, album, artist] = reviewedMatch;
-                const headline = `${album} - ${artist}`;
+                name = `${album} - ${artist}`;
+                
                 const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : 'Reviewed';
                 
-                value = `${headline}\n\`\`\`\n${reviewText}\`\`\`\n\n[View RYM Page](${link})\n-# on ${formattedDate}`;
+                value = `Review:\n\`\`\`${reviewText}\`\`\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
 
             } else if (ratedMatch) {
                 const [, album, artist, rating] = ratedMatch;
-                const headline = `${album} - ${artist}`;
-                const starRating = generateStarRating(rating);
+                name = `${album} - ${artist}`;
 
-                value = `${headline}\nRated ${starRating}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
+                const starRating = generateStarRating(rating);
+                value = `Rated \`${starRating}\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
             } else {
-                const headline = `${title}`;
-                value = `${headline}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
+                name = title;
+                value = `[View RYM Page](${link})\n-# on ${formattedDate}`;
             }
 
             return {
-                name: '** **', // Blank name for spacing
+                name: name,
                 value: value,
                 inline: false,
             };

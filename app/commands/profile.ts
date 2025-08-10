@@ -7,7 +7,6 @@ import {
 } from 'discord-api-types/v10';
 import Parser from 'rss-parser';
 
-// Initialize the parser without any custom fetch logic initially
 const parser = new Parser();
 
 export async function handleProfile(interaction: APIChatInputApplicationCommandInteraction) {
@@ -16,32 +15,38 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
 
     const rssUrl = `https://rateyourmusic.com/~${rymUsername}/data/rss`;
 
+    // Headers that mimic a real browser request
+    const browserHeaders = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Ch-Ua': '"Not A;Brand";v="99", "Chromium";v="90", "Google Chrome";v="90"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
+    };
+
     try {
-        // Step 1: Manually fetch the RSS feed with a User-Agent header
         const response = await fetch(rssUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
-            },
+            headers: browserHeaders,
         });
 
-        // Step 2: Check if the fetch was successful
         if (!response.ok) {
-            // Log the detailed error for debugging on Vercel
             console.error(`Failed to fetch RSS feed for ${rymUsername}. Status: ${response.status} ${response.statusText}`);
-            // Also log the response body if possible, it might contain an error message
             const errorBody = await response.text();
-            console.error('Response Body:', errorBody);
+            console.error('Response Body:', errorBody.slice(0, 500)); // Log the first 500 chars of the body
 
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Error fetching the RSS feed. The server responded with status ${response.status}. Please check the username and try again.` },
+                data: { content: `Error fetching the RSS feed. The server responded with status ${response.status}. This may be due to bot protection. Please try again later.` },
             });
         }
 
-        // Step 3: Get the feed content as text
         const rssText = await response.text();
-
-        // Step 4: Parse the text content
         const feed = await parser.parseString(rssText);
 
         if (!feed.items || feed.items.length === 0) {
@@ -51,24 +56,21 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
             });
         }
         
-        // Take only the most recent 10 items to avoid a huge embed
         const items = feed.items.slice(0, 10); 
 
-        // Format the description, parsing out the title and link
         const description = items.map(item => {
-             // Clean up the title a bit for better display
             const cleanTitle = item.title?.replace(/(\r\n|\n|\r)/gm, " ").trim();
             return `• [${cleanTitle}](${item.link})`;
         }).join('\n');
 
         const embed = {
             title: `Recent activity for ${feed.title?.split('by ')[1] || rymUsername}`,
-            url: feed.link,
+            url: `https://rateyourmusic.com/~${rymUsername}`, // Direct link to the user's profile
             description: description,
-            color: 0x0099ff, // A nice blue color
+            color: 0x8A2BE2, // A purple that matches RYM's color scheme a bit
              footer: {
                 text: `Fetched from Rate Your Music`,
-                icon_url: 'https://e.snmc.io/3.0/img/logo/sonemic-32.png', // RYM/Sonemic favicon
+                icon_url: 'https://e.snmc.io/3.0/img/logo/sonemic-32.png',
             },
             timestamp: new Date().toISOString(),
         };
@@ -80,7 +82,6 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
             },
         });
     } catch (error) {
-        // This will now catch errors from the parsing step or other unexpected issues
         console.error(`An error occurred while processing the profile command for ${rymUsername}:`, error);
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,

@@ -19,16 +19,15 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
             });
         }
 
-        // The option value is the ID of the attachment
-        // eslint-disable-next-line
         const attachmentId = (interaction.data.options?.[0] as any).value;
         const attachment = attachments[attachmentId];
 
         // 2. Validate the file type (optional but good practice)
-        if (!attachment.content_type?.startsWith('text/plain') && !attachment.content_type?.startsWith('application/xml')) {
+        // *** THIS IS THE MODIFIED LINE ***
+        if (!attachment.content_type?.startsWith('text/plain') && !attachment.content_type?.startsWith('application/xml') && !attachment.content_type?.startsWith('application/xhtml+xml') && !attachment.content_type?.startsWith('text/html')) {
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `❌ Please upload a valid .txt or .xml file. You uploaded a file of type \`${attachment.content_type}\`.` },
+                data: { content: `❌ Please upload a valid .txt, .xml, or .html file. You uploaded a file of type \`${attachment.content_type}\`.` },
             });
         }
 
@@ -43,7 +42,7 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         }
         const rssText = await response.text();
 
-        // 4. Parse the file content (the rest of the logic is the same!)
+        // 4. Parse the file content
         const feed = await parser.parseString(rssText);
         const rymUsername = feed.title?.split('by ')[1] || 'user';
 
@@ -64,7 +63,7 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
 
         const embed = {
             title: `Recent activity for ${rymUsername}`,
-            url: `https://rateyourmusic.com/~${rymUsername}`, // We can still construct the profile link
+            url: `https://rateyourmusic.com/~${rymUsername}`,
             description: description,
             color: 0x8A2BE2,
              footer: {
@@ -82,7 +81,6 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         });
 
     } catch (error) {
-        // This error will now most likely trigger if the user uploads a file that isn't valid RSS/XML
         console.error('Failed to parse the attached file:', error);
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,

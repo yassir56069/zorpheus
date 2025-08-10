@@ -20,6 +20,7 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         }
 
         // The option value is the ID of the attachment
+        // eslint-disable-next-line
         const attachmentId = (interaction.data.options?.[0] as any).value;
         const attachment = attachments[attachmentId];
 

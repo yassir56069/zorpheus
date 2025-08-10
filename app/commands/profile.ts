@@ -19,6 +19,7 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
             });
         }
 
+        // eslint-disable-next-line
         const attachmentId = (interaction.data.options?.[0] as any).value;
         const attachment = attachments[attachmentId];
 

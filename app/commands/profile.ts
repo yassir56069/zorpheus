@@ -100,37 +100,47 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         
         // 4. Create the embed fields from the RSS items
         const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
-            const { title = '', link, pubDate, description } = item;
-            let value = '';
+            const { title = '', link, pubDate } = item;
+            // The 'description' is inside the custom 'content' field for rss-parser
+            const description = (item as any).content || '';
 
+            let name = '';
+            let value = '';
             const formattedDate = formatDate(pubDate);
 
-            // Regex to capture album, artist, and rating from a "Rated" title
             const ratedRegex = /Rated (.*) by (.*) +(\d\.\d|\d) stars/;
             const ratedMatch = title.match(ratedRegex);
 
-            // Regex for a "Reviewed" title
             const reviewedRegex = /Reviewed (.*) by (.*)/;
             const reviewedMatch = title.match(reviewedRegex);
 
-            if (ratedMatch) {
-                const [, album, artist, rating] = ratedMatch;
-                const starRating = generateStarRating(rating);
-                value = `## [${album} - ${artist}](${link})\nRated ${starRating}\n-# on ${formattedDate}`;
-            } else if (reviewedMatch) {
+            if (reviewedMatch) {
                 const [, album, artist] = reviewedMatch;
-                // Clean up the review snippet from the description tag
-                const reviewText = description?.replace(/<[^>]*>/g, '').trim();
-                value = `## [${album} - ${artist}](${link})\n*${reviewText}*\n-# on ${formattedDate}`;
+                name = `[${album} - ${artist}](${link})`;
+
+                // Safely extract review text and place it in a code block
+                const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : '';
+                if (reviewText) {
+                    value = `\`\`\`${reviewText}\`\`\`\n- on ${formattedDate}`;
+                } else {
+                    // Fallback if no review text is found
+                    value = `Reviewed\n- on ${formattedDate}`;
+                }
+            } else if (ratedMatch) {
+                const [, album, artist, rating] = ratedMatch;
+                name = `[${album} - ${artist}](${link})`;
+                const starRating = generateStarRating(rating);
+                value = `Rated ${starRating}\n- on ${formattedDate}`;
             } else {
                 // Handle other item types like adding to a list
-                value = `## [${title}](${link})\n-# on ${formattedDate}`;
+                name = `[${title}](${link})`;
+                value = `- on ${formattedDate}`;
             }
 
             return {
-                name: '** **', // Blank name for spacing
+                name: name,
                 value: value,
-                inline: false, // Ensure each entry is on its own line
+                inline: false,
             };
         });
 
@@ -139,7 +149,7 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
             title: `Recent activity for ${rymUsername}`,
             url: `https://rateyourmusic.com/~${rymUsername}`,
             color: 0x8A2BE2,
-            fields: fields, // Use the new fields array
+            fields: fields,
              footer: {
                 text: `Fetched from a user-provided RSS file`,
                 icon_url: 'https://e.snmc.io/3.0/img/logo/sonemic-32.png',

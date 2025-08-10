@@ -102,6 +102,8 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
             const { title = '', link, pubDate } = item;
             // The 'description' is inside the custom 'content' field for rss-parser
+            
+            // eslint-disable-next-line
             const description = (item as any).content || '';
 
             let name = '';

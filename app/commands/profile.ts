@@ -101,12 +101,8 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         // 4. Create the embed fields from the RSS items
         const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
             const { title = '', link, pubDate } = item;
-            // The 'description' is inside the custom 'content' field for rss-parser
-            
-            // eslint-disable-next-line
             const description = (item as any).content || '';
 
-            let name = '';
             let value = '';
             const formattedDate = formatDate(pubDate);
 
@@ -118,29 +114,24 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
 
             if (reviewedMatch) {
                 const [, album, artist] = reviewedMatch;
-                name = `[${album} - ${artist}](${link})`;
+                const headline = `## ${album} - ${artist}`;
+                const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : 'Reviewed';
+                
+                value = `${headline}\n${reviewText}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
 
-                // Safely extract review text and place it in a code block
-                const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : '';
-                if (reviewText) {
-                    value = `\`\`\`${reviewText}\`\`\`\n- on ${formattedDate}`;
-                } else {
-                    // Fallback if no review text is found
-                    value = `Reviewed\n- on ${formattedDate}`;
-                }
             } else if (ratedMatch) {
                 const [, album, artist, rating] = ratedMatch;
-                name = `[${album} - ${artist}](${link})`;
+                const headline = `## ${album} - ${artist}`;
                 const starRating = generateStarRating(rating);
-                value = `Rated ${starRating}\n- on ${formattedDate}`;
+
+                value = `${headline}\nRated \`${starRating}\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
             } else {
-                // Handle other item types like adding to a list
-                name = `[${title}](${link})`;
-                value = `- on ${formattedDate}`;
+                const headline = `## ${title}`;
+                value = `${headline}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
             }
 
             return {
-                name: name,
+                name: '** **', // Blank name for spacing
                 value: value,
                 inline: false,
             };

@@ -3,58 +3,54 @@ import { NextResponse } from 'next/server';
 import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
-    APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import Parser from 'rss-parser';
 
 const parser = new Parser();
 
 export async function handleProfile(interaction: APIChatInputApplicationCommandInteraction) {
-    const usernameOption = interaction.data.options?.[0] as APIApplicationCommandInteractionDataStringOption;
-    const rymUsername = usernameOption.value;
-
-    // The target URL we want to access
-    const targetUrl = `https://rateyourmusic.com/~${rymUsername}/data/rss`;
-
-    // *** THE NEW FIX: Use the AllOrigins proxy ***
-    // We encode the target URL and pass it as a query parameter.
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-
     try {
-        // Fetch from the AllOrigins proxy. No special headers are needed for the proxy itself.
-        const response = await fetch(proxyUrl);
-
-        if (!response.ok) {
-            console.error(`Failed to fetch via AllOrigins proxy for ${rymUsername}. Status: ${response.status}`);
+        // 1. Get the attachment's metadata from the interaction payload
+        const attachments = interaction.data.resolved?.attachments;
+        if (!attachments) {
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `Error fetching the RSS feed. The proxy responded with status ${response.status}.` },
+                data: { content: '❌ Error: No attachments found in the interaction.' },
             });
         }
 
-        // The AllOrigins proxy returns a JSON object. We need to parse it first.
-        const jsonResponse = await response.json();
-        
-        // The actual RSS feed content is in the 'contents' property of the JSON response.
-        const rssText = jsonResponse.contents;
+        // The option value is the ID of the attachment
+        const attachmentId = (interaction.data.options?.[0] as any).value;
+        const attachment = attachments[attachmentId];
 
-        if (!rssText) {
-             console.error(`AllOrigins proxy returned empty content for ${rymUsername}. The source URL might be blocked or invalid.`);
-             // We can even check the status from the proxy's response to see what RYM returned
-             console.error('Original fetch status reported by proxy:', jsonResponse.status);
-             return NextResponse.json({
+        // 2. Validate the file type (optional but good practice)
+        if (!attachment.content_type?.startsWith('text/plain') && !attachment.content_type?.startsWith('application/xml')) {
+            return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: 'The proxy could not retrieve the content. The Rate Your Music profile may be private, invalid, or temporarily unavailable.' },
+                data: { content: `❌ Please upload a valid .txt or .xml file. You uploaded a file of type \`${attachment.content_type}\`.` },
             });
         }
 
-        // Now we can parse the extracted RSS content
+        // 3. Fetch the content of the file from Discord's CDN
+        const fileUrl = attachment.url;
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: { content: '❌ Could not fetch the attachment content from Discord.' },
+            });
+        }
+        const rssText = await response.text();
+
+        // 4. Parse the file content (the rest of the logic is the same!)
         const feed = await parser.parseString(rssText);
+        const rymUsername = feed.title?.split('by ')[1] || 'user';
+
 
         if (!feed.items || feed.items.length === 0) {
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: 'No recent activity found for this user.' },
+                data: { content: 'The provided feed has no recent activity.' },
             });
         }
         
@@ -66,12 +62,12 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
         }).join('\n');
 
         const embed = {
-            title: `Recent activity for ${feed.title?.split('by ')[1] || rymUsername}`,
-            url: `https://rateyourmusic.com/~${rymUsername}`,
+            title: `Recent activity for ${rymUsername}`,
+            url: `https://rateyourmusic.com/~${rymUsername}`, // We can still construct the profile link
             description: description,
             color: 0x8A2BE2,
              footer: {
-                text: `Fetched from Rate Your Music`,
+                text: `Fetched from a user-provided RSS file`,
                 icon_url: 'https://e.snmc.io/3.0/img/logo/sonemic-32.png',
             },
             timestamp: new Date().toISOString(),
@@ -83,11 +79,13 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
                 embeds: [embed],
             },
         });
+
     } catch (error) {
-        console.error(`An error occurred while processing the proxied profile command for ${rymUsername}:`, error);
+        // This error will now most likely trigger if the user uploads a file that isn't valid RSS/XML
+        console.error('Failed to parse the attached file:', error);
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: 'Could not fetch or parse the RSS feed. Please ensure the username is correct and public.' },
+            data: { content: '❌ Failed to parse the file. Please ensure it is the unmodified RSS feed from Rate Your Music.' },
         });
     }
 }

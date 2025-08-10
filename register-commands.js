@@ -67,12 +67,12 @@ const commands = [
   },
   {
     name: 'profile',
-    description: 'Fetches and displays a Rate Your Music user profile.',
+    description: 'Displays a Rate Your Music Profile from an RSS Feed File.',
     options: [
       {
-        name: 'username',
-        description: 'The Rate Your Music username. (Case Sensitive!)',
-        type: 3, // STRING
+        name: 'feed',
+        description: 'The .txt or .xml file containing the RSS feed from Rate Your Music.',
+        type: 11, // STRING
         required: true,
       },
     ],

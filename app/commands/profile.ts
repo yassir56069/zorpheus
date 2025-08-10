@@ -115,19 +115,19 @@ export async function handleProfile(interaction: APIChatInputApplicationCommandI
 
             if (reviewedMatch) {
                 const [, album, artist] = reviewedMatch;
-                const headline = `## ${album} - ${artist}`;
+                const headline = `${album} - ${artist}`;
                 const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : 'Reviewed';
                 
-                value = `${headline}\n${reviewText}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
+                value = `${headline}\n\`\`\`\n${reviewText}\`\`\`\n\n[View RYM Page](${link})\n-# on ${formattedDate}`;
 
             } else if (ratedMatch) {
                 const [, album, artist, rating] = ratedMatch;
-                const headline = `## ${album} - ${artist}`;
+                const headline = `${album} - ${artist}`;
                 const starRating = generateStarRating(rating);
 
-                value = `${headline}\nRated \`${starRating}\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
+                value = `${headline}\nRated ${starRating}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
             } else {
-                const headline = `## ${title}`;
+                const headline = `${title}`;
                 value = `${headline}\n[View RYM Page](${link})\n-# on ${formattedDate}`;
             }
 

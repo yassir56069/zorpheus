@@ -156,10 +156,10 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         
         const embed = {
             image: { url: 'attachment://chart.png' },
-            footer: {
-                text: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period]}) • Requested by ${discordUser.username}`,
-                icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
-            }
+            // footer: {
+            //     text: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period]}) • Requested by ${discordUser.username}`,
+            //     icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+            // }
         };
         formData.append('payload_json', JSON.stringify({ embeds: [embed] }));
 

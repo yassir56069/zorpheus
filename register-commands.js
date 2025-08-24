@@ -65,6 +65,18 @@ const commands = [
       },
     ],
   },
+    {
+    name: 'rc',
+    description: 'Raw Cover - displays the raw album art for a track or search.',
+    options: [
+      {
+        name: 'search',
+        description: 'Search for an album on Last.fm.',
+        type: 3, // STRING
+        required: false,
+      },
+    ],
+  },
   {
     name: 'profile',
     description: 'Displays a Rate Your Music Profile from an RSS Feed File.',

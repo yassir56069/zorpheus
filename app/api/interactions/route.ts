@@ -20,6 +20,7 @@ import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/cou
 import { handleDev } from '@/app/sandbox/dev';
 import { handleProfile } from '@/app/commands/profile';
 import { handleChart } from '@/app/commands/chart';
+import { handleRc } from '@/app/commands/rc';
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
@@ -45,12 +46,14 @@ export async function POST(req: Request) {
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
-            case 'countdown': // Add case for the new command
+            case 'countdown': 
                 return handleCountdown(interaction as APIChatInputApplicationCommandInteraction);
-            case 'profile': // Add case for the new command
+            case 'profile': 
                 return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
-            case 'chart': // <-- ADD THE CASE FOR THE CHART COMMAND
+            case 'chart': 
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
+            case 'rc': 
+                return handleRc(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 

@@ -138,7 +138,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             album.image.find((img: { size: string; }) => img.size === 'large')['#text'] ||
             // Fallback for missing images
             'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art'
-        ).map((url: string) => 
+        ).map((url: string) =>
             // Replace the default Last.fm placeholder with our custom one
             url.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : url
         );
@@ -160,17 +160,21 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             'overall': 'All Time'
         };
         
+        // --- MODIFICATION START ---
+        // The embed object has been updated based on your requests.
         const embed = {
-            title: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period] || 'Weekly'})`,
-            color: 0xd51007, // Last.fm red
+            // The title and color properties have been removed.
             image: {
                 url: 'attachment://chart.png', // Tell Discord to use the attached file
             },
             footer: {
-                text: `Requested by ${discordUser.username}`,
+                // The chart info is now in the footer for a cleaner look.
+                text: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period]}) • Requested by ${discordUser.username}`,
                 icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
             }
         };
+        // --- MODIFICATION END ---
+
         formData.append('payload_json', JSON.stringify({ embeds: [embed] }));
 
         // Send the final response with the image

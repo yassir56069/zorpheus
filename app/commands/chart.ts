@@ -27,15 +27,20 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
  *_ @returns A Promise that resolves with the generated image Buffer in PNG format.
  */
 async function createChartImage(imageUrls: string[]): Promise<Buffer> {
-    const imageSize = 300; // The size of each album cover in the grid
+    // --- MODIFICATION START ---
+    // New dimensions for a wider embed
+    const canvasWidth = 1536;
+    const canvasHeight = 900;
     const gridSize = 3;
-    const canvasSize = imageSize * gridSize;
+    const cellWidth = canvasWidth / gridSize;   // 512
+    const cellHeight = canvasHeight / gridSize; // 300
+    // --- MODIFICATION END ---
 
-    // Create a blank canvas
+    // Create a blank canvas with the new dimensions
     const canvas = sharp({
         create: {
-            width: canvasSize,
-            height: canvasSize,
+            width: canvasWidth,
+            height: canvasHeight,
             channels: 4,
             background: { r: 20, g: 20, b: 20, alpha: 1 } // A dark background
         }
@@ -47,24 +52,27 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
             try {
                 // Fetch the image
                 const imageBuffer = await fetchImageBuffer(url);
-                // Resize it to fit the grid cell
+                
+                // --- MODIFICATION START ---
+                // Resize to fit the new rectangular cell, cropping to cover the area.
                 const resizedImage = await sharp(imageBuffer)
-                    .resize(imageSize, imageSize)
+                    .resize(cellWidth, cellHeight, { fit: 'cover' })
                     .toBuffer();
+                // --- MODIFICATION END ---
 
                 // Return the operation for the composite function
                 return {
                     input: resizedImage,
-                    left: (index % gridSize) * imageSize,
-                    top: Math.floor(index / gridSize) * imageSize,
+                    left: (index % gridSize) * cellWidth,
+                    top: Math.floor(index / gridSize) * cellHeight,
                 };
             } catch (error) {
                 console.error(`Failed to process image ${url}:`, error);
-                // If an image fails, create a dark grey placeholder
+                // If an image fails, create a dark grey placeholder with the new dimensions
                 const placeholder = await sharp({
                     create: {
-                        width: imageSize,
-                        height: imageSize,
+                        width: cellWidth,
+                        height: cellHeight,
                         channels: 4,
                         background: { r: 50, g: 50, b: 50, alpha: 1 }
                     }
@@ -72,8 +80,8 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
 
                 return {
                     input: placeholder,
-                    left: (index % gridSize) * imageSize,
-                    top: Math.floor(index / gridSize) * imageSize,
+                    left: (index % gridSize) * cellWidth,
+                    top: Math.floor(index / gridSize) * cellHeight,
                 };
             }
         })
@@ -160,21 +168,16 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             'overall': 'All Time'
         };
         
-        // --- MODIFICATION START ---
-        // The embed object has been updated based on your requests.
         const embed = {
-            // The title and color properties have been removed.
             image: {
                 url: 'attachment://chart.png', // Tell Discord to use the attached file
             },
             footer: {
-                // The chart info is now in the footer for a cleaner look.
                 text: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period]}) • Requested by ${discordUser.username}`,
                 icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
             }
         };
-        // --- MODIFICATION END ---
-
+        
         formData.append('payload_json', JSON.stringify({ embeds: [embed] }));
 
         // Send the final response with the image

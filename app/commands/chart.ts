@@ -27,13 +27,13 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
  *_ @returns A Promise that resolves with the generated image Buffer in PNG format.
  */
 async function createChartImage(imageUrls: string[]): Promise<Buffer> {
-    // --- MODIFICATION START ---
-    const imageSize = 500; // Changed from 300 to 500 for a 1500x1500 total image size
-    // --- MODIFICATION END ---
+    // Each individual album art will be 300x300 pixels.
+    const imageSize = 300; 
     const gridSize = 3;
-    const canvasSize = imageSize * gridSize;
+    // The total canvas size will be 300 * 3 = 900x900 pixels.
+    const canvasSize = imageSize * gridSize; 
 
-    // Create a blank canvas
+    // Create a blank 900x900 canvas.
     const canvas = sharp({
         create: {
             width: canvasSize,
@@ -49,7 +49,7 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
             try {
                 // Fetch the image
                 const imageBuffer = await fetchImageBuffer(url);
-                // Resize it to fit the grid cell
+                // Resize it to fit the 300x300 grid cell
                 const resizedImage = await sharp(imageBuffer)
                     .resize(imageSize, imageSize)
                     .toBuffer();
@@ -62,7 +62,7 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
                 };
             } catch (error) {
                 console.error(`Failed to process image ${url}:`, error);
-                // If an image fails, create a dark grey placeholder
+                // If an image fails, create a dark grey 300x300 placeholder
                 const placeholder = await sharp({
                     create: {
                         width: imageSize,
@@ -81,7 +81,7 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
         })
     );
 
-    // Composite all images onto the canvas and return the final image as a Buffer
+    // Composite all images onto the 900x900 canvas and return the final image
     return canvas.composite(compositeOperations).png().toBuffer();
 }
 
@@ -89,7 +89,7 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
  * Handles the logic for the /chart command.
  */
 export async function handleChart(interaction: APIChatInputApplicationCommandInteraction) {
-    // Immediately defer the reply, as fetching and processing images can take time
+    // Immediately defer the reply
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
@@ -100,7 +100,6 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const period = options.find(opt => opt.name === 'period')?.value || '7day';
     let lastfmUsername = options.find(opt => opt.name === 'user')?.value || null;
 
-    // If no username is provided in the command, use the registered one
     if (!lastfmUsername) {
         const discordUserId = interaction.member!.user.id;
         lastfmUsername = await kv.get(discordUserId) as string | null;
@@ -134,47 +133,35 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
 
         const albums = data.topalbums.album;
-        // eslint-disable-next-line
-        const imageUrls = albums.map((album: { image: any[]; }) =>
-            album.image.find((img: { size: string; }) => img.size === 'extralarge')['#text'] ||
-            album.image.find((img: { size: string; }) => img.size === 'large')['#text'] ||
-            // Fallback for missing images
+        const imageUrls = albums.map((album: any) =>
+            album.image.find((img: any) => img.size === 'extralarge')['#text'] ||
+            album.image.find((img: any) => img.size === 'large')['#text'] ||
             'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art'
         ).map((url: string) =>
-            // Replace the default Last.fm placeholder with our custom one
             url.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : url
         );
 
-        // Generate the chart image
+        // Generate the 900x900 chart image
         const chartImageBuffer = await createChartImage(imageUrls);
 
-        // Use FormData to upload the image file to Discord
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');
 
         const discordUser = interaction.member!.user;
         const periodDisplayNames: { [key: string]: string } = {
-            '7day': 'Last 7 Days',
-            '1month': 'Last Month',
-            '3month': 'Last 3 Months',
-            '6month': 'Last 6 Months',
-            '12month': 'Last Year',
-            'overall': 'All Time'
+            '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
+            '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
         
         const embed = {
-            image: {
-                url: 'attachment://chart.png', // Tell Discord to use the attached file
-            },
+            image: { url: 'attachment://chart.png' },
             footer: {
                 text: `${lastfmUsername}'s Top Albums (${periodDisplayNames[period]}) • Requested by ${discordUser.username}`,
                 icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
             }
         };
-
         formData.append('payload_json', JSON.stringify({ embeds: [embed] }));
 
-        // Send the final response with the image
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',
             body: formData,

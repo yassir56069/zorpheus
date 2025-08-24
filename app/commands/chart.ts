@@ -133,9 +133,10 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
 
         const albums = data.topalbums.album;
-        const imageUrls = albums.map((album: any) =>
-            album.image.find((img: any) => img.size === 'extralarge')['#text'] ||
-            album.image.find((img: any) => img.size === 'large')['#text'] ||
+        // eslint-disable-next-line
+        const imageUrls = albums.map((album: { image: any[]; }) =>
+            album.image.find((img: { size: string; }) => img.size === 'extralarge')['#text'] ||
+            album.image.find((img: { size: string; }) => img.size === 'large')['#text'] ||
             'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art'
         ).map((url: string) =>
             url.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : url

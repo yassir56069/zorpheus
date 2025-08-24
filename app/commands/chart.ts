@@ -141,8 +141,8 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
         
-        const content = `**${lastfmUsername}'s Top Albums (${periodDisplayNames[period]})**`;
-        formData.append('payload_json', JSON.stringify({ content: content }));
+        const content = `-#*Top Albums (${periodDisplayNames[period]}) - *${lastfmUsername}**`;
+        formData.append('payload_json', JSON.stringify({ s: content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',

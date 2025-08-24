@@ -128,12 +128,11 @@ async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandIn
             
             const formData = new FormData();
             formData.append('file', new Blob([imageBuffer]), 'cover.png');
-            
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: formData,
             });
         } else {
-            let content = `Could not find album art for \`${initialSearchQuery}\`.`;
+            const content = `Could not find album art for \`${initialSearchQuery}\`.`;
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });

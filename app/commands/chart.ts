@@ -134,7 +134,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         
         // --- MODIFICATION START ---
         // Instead of an embed, we now create a simple message content string.
-        const content = `**${lastfmUsername}'s Top Albums (${periodDisplayNames[period]})**`;
+        const content = `-# *${lastfmUsername}'s Top Albums (${periodDisplayNames[period]})*`;
 
         // We attach the content to the payload_json. The image is sent as a file,
         // so Discord will display it as a large, raw image attachment.

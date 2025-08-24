@@ -48,6 +48,8 @@ export async function POST(req: Request) {
                 return handleCountdown(interaction as APIChatInputApplicationCommandInteraction);
             case 'profile': // Add case for the new command
                 return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
+            case 'chart': // <-- ADD THE CASE FOR THE CHART COMMAND
+                return handleChart(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 

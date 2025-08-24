@@ -77,6 +77,32 @@ const commands = [
       },
     ],
   },
+  {
+    name: 'chart',
+    description: 'Generates a 3x3 grid of your most listened to albums.',
+    options: [
+      {
+        name: 'period',
+        description: 'The time period for the chart (default: week).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: 'Last 7 Days', value: '7day' },
+          { name: '1 Month', value: '1month' },
+          { name: '3 Months', value: '3month' },
+          { name: '6 Months', value: '6month' },
+          { name: '1 Year', value: '12month' },
+          { name: 'Overall', value: 'overall' },
+        ]
+      },
+      {
+        name: 'user',
+        description: 'The Last.fm username to generate the chart for (defaults to your registered user).',
+        type: 3, // STRING
+        required: false
+      }
+    ]
+  },
 ];
 
 

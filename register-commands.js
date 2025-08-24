@@ -1,4 +1,5 @@
 // register-commands.js
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config({ path: '.env.local' });
 
 const token = process.env.DISCORD_BOT_TOKEN;
@@ -91,11 +92,26 @@ const commands = [
   },
   {
     name: 'chart',
-    description: 'Generates a 3x3 grid of your most listened to albums.',
+    description: 'Generates a grid of your most listened to albums.',
     options: [
       {
+        name: 'size',
+        description: 'The dimensions of the chart grid (default: 3x3).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: '3x3 (Default)', value: '3x3' },
+          { name: '4x4', value: '4x4' },
+          { name: '5x5', value: '5x5' },
+          { name: '8x5', value: '8x5' },
+          { name: '10x10', value: '10x10' },
+          { name: '4x8', value: '4x8' },
+          { name: '15x6', value: '15x6' },
+        ]
+      },
+      {
         name: 'period',
-        description: 'The time period for the chart (default: week).',
+        description: 'The time period for the chart (default: 7day).',
         type: 3, // STRING
         required: false,
         choices: [
@@ -109,7 +125,7 @@ const commands = [
       },
       {
         name: 'user',
-        description: 'The Last.fm username to generate the chart for (defaults to your registered user).',
+        description: 'The Last.fm username to generate the chart for.',
         type: 3, // STRING
         required: false
       }

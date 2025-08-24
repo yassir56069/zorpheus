@@ -7,11 +7,6 @@ import {
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 
-/**
- * Fetches an image from a URL and returns it as a Buffer.
- * @param url The URL of the image to fetch.
- * @returns A Promise that resolves with the image Buffer.
- */
 async function fetchImageBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
     if (!response.ok) {
@@ -22,19 +17,23 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 }
 
 /**
- * Creates a 3x3 grid image from a list of album cover URLs.
- * @param imageUrls An array of 9 image URLs.
- *_ @returns A Promise that resolves with the generated image Buffer in PNG format.
+ * Creates a dynamic grid image from a list of album cover URLs.
+ * @param imageUrls An array of image URLs.
+ * @param gridWidth The number of images per row.
+ * @param gridHeight The number of rows.
+ * @returns A Promise that resolves with the generated image Buffer in PNG format.
  */
-async function createChartImage(imageUrls: string[]): Promise<Buffer> {
-    const imageSize = 300;
-    const gridSize = 3;
-    const canvasSize = imageSize * gridSize; // Results in a 900x900 image
+async function createChartImage(imageUrls: string[], gridWidth: number, gridHeight: number): Promise<Buffer> {
+    // Dynamically adjust image size for larger grids to avoid huge file sizes
+    const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
+
+    const canvasWidth = imageSize * gridWidth;
+    const canvasHeight = imageSize * gridHeight;
 
     const canvas = sharp({
         create: {
-            width: canvasSize,
-            height: canvasSize,
+            width: canvasWidth,
+            height: canvasHeight,
             channels: 4,
             background: { r: 20, g: 20, b: 20, alpha: 1 }
         }
@@ -47,8 +46,8 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
                 const resizedImage = await sharp(imageBuffer).resize(imageSize, imageSize).toBuffer();
                 return {
                     input: resizedImage,
-                    left: (index % gridSize) * imageSize,
-                    top: Math.floor(index / gridSize) * imageSize,
+                    left: (index % gridWidth) * imageSize,
+                    top: Math.floor(index / gridWidth) * imageSize,
                 };
             } catch (error) {
                 console.error(`Failed to process image ${url}:`, error);
@@ -60,8 +59,8 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
                 }).png().toBuffer();
                 return {
                     input: placeholder,
-                    left: (index % gridSize) * imageSize,
-                    top: Math.floor(index / gridSize) * imageSize,
+                    left: (index % gridWidth) * imageSize,
+                    top: Math.floor(index / gridWidth) * imageSize,
                 };
             }
         })
@@ -83,6 +82,13 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const options = (interaction.data.options || []) as APIApplicationCommandInteractionDataStringOption[];
     let lastfmUsername = options.find(opt => opt.name === 'user')?.value || null;
 
+    // --- MODIFICATION START ---
+    // Parse the new 'size' option
+    const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
+    const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
+    const limit = gridWidth * gridHeight;
+    // --- MODIFICATION END ---
+
     if (!lastfmUsername) {
         const discordUserId = interaction.member!.user.id;
         lastfmUsername = await kv.get(discordUserId) as string | null;
@@ -98,14 +104,16 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
 
     const period = options.find(opt => opt.name === 'period')?.value || '7day';
     const apiKey = process.env.LASTFM_API_KEY;
-    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=9`;
+    // Update the API URL to fetch the correct number of albums
+    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=${limit}`;
 
     try {
         const response = await fetch(apiUrl);
         const data = await response.json();
 
-        if (data.error || !data.topalbums || data.topalbums.album.length < 9) {
-            const content = `Could not fetch 9 albums for \`${lastfmUsername}\`. They may need to listen to more music to generate a chart for this period.`;
+        // Check if we got enough albums for the requested chart size
+        if (data.error || !data.topalbums || data.topalbums.album.length < limit) {
+            const content = `Could not fetch ${limit} albums for \`${lastfmUsername}\`. They may need to listen to more music to generate a chart for this period.`;
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
@@ -113,7 +121,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
 
         const albums = data.topalbums.album;
-        // eslint-disable-next-line
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const imageUrls = albums.map((album: { image: any[]; }) =>
             album.image.find((img: { size: string; }) => img.size === 'extralarge')['#text'] ||
             album.image.find((img: { size: string; }) => img.size === 'large')['#text'] ||
@@ -122,7 +130,8 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             url.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : url
         );
 
-        const chartImageBuffer = await createChartImage(imageUrls);
+        // Generate the chart with the specified dimensions
+        const chartImageBuffer = await createChartImage(imageUrls, gridWidth, gridHeight);
 
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');
@@ -132,14 +141,8 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
         
-        // --- MODIFICATION START ---
-        // Instead of an embed, we now create a simple message content string.
-        const content = `-# *Top Albums (${periodDisplayNames[period]}) - **${lastfmUsername}***`;
-
-        // We attach the content to the payload_json. The image is sent as a file,
-        // so Discord will display it as a large, raw image attachment.
+        const content = `**${lastfmUsername}'s Top Albums (${periodDisplayNames[period]})**`;
         formData.append('payload_json', JSON.stringify({ content: content }));
-        // --- MODIFICATION END ---
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',

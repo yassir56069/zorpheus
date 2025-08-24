@@ -5,7 +5,6 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIMessageComponentButtonInteraction,
-    APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 

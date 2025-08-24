@@ -123,8 +123,8 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         const albums = data.topalbums.album;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const imageUrls = albums.map((album: { image: any[]; }) =>
-            album.image.find((img: { size: string; }) => img.size === 'extralarge')['#text'] ||
-            album.image.find((img: { size: string; }) => img.size === 'large')['#text'] ||
+            album.image.find((img) => img.size === 'extralarge')['#text'] ||
+            album.image.find((img) => img.size === 'large')['#text'] ||
             'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art'
         ).map((url: string) =>
             url.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : url
@@ -141,8 +141,8 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
             '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
         
-        const content = `-#*Top Albums (${periodDisplayNames[period]}) - *${lastfmUsername}**`;
-        formData.append('payload_json', JSON.stringify({ s: content }));
+        const content = `-# *Top Albums (${periodDisplayNames[period]}) - ${lastfmUsername}**`;
+        formData.append('payload_json', JSON.stringify({ content: content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',

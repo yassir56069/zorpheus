@@ -28,19 +28,16 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
  */
 async function createChartImage(imageUrls: string[]): Promise<Buffer> {
     // --- MODIFICATION START ---
-    // New dimensions for a wider embed
-    const canvasWidth = 1536;
-    const canvasHeight = 900;
-    const gridSize = 3;
-    const cellWidth = canvasWidth / gridSize;   // 512
-    const cellHeight = canvasHeight / gridSize; // 300
+    const imageSize = 500; // Changed from 300 to 500 for a 1500x1500 total image size
     // --- MODIFICATION END ---
+    const gridSize = 3;
+    const canvasSize = imageSize * gridSize;
 
-    // Create a blank canvas with the new dimensions
+    // Create a blank canvas
     const canvas = sharp({
         create: {
-            width: canvasWidth,
-            height: canvasHeight,
+            width: canvasSize,
+            height: canvasSize,
             channels: 4,
             background: { r: 20, g: 20, b: 20, alpha: 1 } // A dark background
         }
@@ -52,27 +49,24 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
             try {
                 // Fetch the image
                 const imageBuffer = await fetchImageBuffer(url);
-                
-                // --- MODIFICATION START ---
-                // Resize to fit the new rectangular cell, cropping to cover the area.
+                // Resize it to fit the grid cell
                 const resizedImage = await sharp(imageBuffer)
-                    .resize(cellWidth, cellHeight, { fit: 'cover' })
+                    .resize(imageSize, imageSize)
                     .toBuffer();
-                // --- MODIFICATION END ---
 
                 // Return the operation for the composite function
                 return {
                     input: resizedImage,
-                    left: (index % gridSize) * cellWidth,
-                    top: Math.floor(index / gridSize) * cellHeight,
+                    left: (index % gridSize) * imageSize,
+                    top: Math.floor(index / gridSize) * imageSize,
                 };
             } catch (error) {
                 console.error(`Failed to process image ${url}:`, error);
-                // If an image fails, create a dark grey placeholder with the new dimensions
+                // If an image fails, create a dark grey placeholder
                 const placeholder = await sharp({
                     create: {
-                        width: cellWidth,
-                        height: cellHeight,
+                        width: imageSize,
+                        height: imageSize,
                         channels: 4,
                         background: { r: 50, g: 50, b: 50, alpha: 1 }
                     }
@@ -80,8 +74,8 @@ async function createChartImage(imageUrls: string[]): Promise<Buffer> {
 
                 return {
                     input: placeholder,
-                    left: (index % gridSize) * cellWidth,
-                    top: Math.floor(index / gridSize) * cellHeight,
+                    left: (index % gridSize) * imageSize,
+                    top: Math.floor(index / gridSize) * imageSize,
                 };
             }
         })
@@ -177,7 +171,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
                 icon_url: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
             }
         };
-        
+
         formData.append('payload_json', JSON.stringify({ embeds: [embed] }));
 
         // Send the final response with the image

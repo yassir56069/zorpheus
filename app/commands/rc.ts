@@ -111,7 +111,7 @@ async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandIn
             if (data.error || !data.results?.albummatches?.album?.[0]) continue;
 
             const album = data.results.albummatches.album[0];
-            const artUrl = album.image.find((img: any) => img.size === 'extralarge')?.['#text'];
+            const artUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
 
             if (await isValidImageUrl(artUrl)) {
                 finalAlbumArtUrl = artUrl;
@@ -166,7 +166,7 @@ async function handleUserScrobbleRc(interaction: APIChatInputApplicationCommandI
         }
         
         const track = data.recenttracks.track[0];
-        let albumArtUrl = track.image.find((img: any) => img.size === 'extralarge')?.['#text'];
+        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
 
         if (!await isValidImageUrl(albumArtUrl)) {
             albumArtUrl = await findCoverArt(track.artist['#text'], track.album['#text']);

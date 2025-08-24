@@ -19,6 +19,7 @@ import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/cou
 // development 
 import { handleDev } from '@/app/sandbox/dev';
 import { handleProfile } from '@/app/commands/profile';
+import { handleChart } from '@/app/commands/chart';
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);

@@ -11,7 +11,7 @@ import { createCanvas, registerFont } from 'canvas';
 
 // --- FONT REGISTRATION (No changes here) ---
 try {
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'MantiSans.otf');
+    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'JackInput.ttf');
     registerFont(fontPath, { family: 'DejaVu' });
     console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
 } catch (error)

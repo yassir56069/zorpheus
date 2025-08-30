@@ -91,7 +91,7 @@ const commands = [
     ],
   },
   {
-    name: 'chart',
+    name: 'chart', // command here
     description: 'Generates a grid of your most listened to albums.',
     options: [
       {
@@ -128,7 +128,18 @@ const commands = [
         description: 'The Last.fm username to generate the chart for.',
         type: 3, // STRING
         required: false
-      }
+      },
+      {
+        name: 'display_style',
+        description: 'How to display album names (default: No Names).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: 'No Names (Default)', value: 'no_names' },
+          { name: 'Topster Style', value: 'topster' },
+          { name: 'Names Under Albums', value: 'under' },
+        ],
+      },
     ]
   },
 ];

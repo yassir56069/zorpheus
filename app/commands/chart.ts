@@ -14,7 +14,8 @@ try {
     const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
     registerFont(fontPath, { family: 'DejaVu' });
     console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
-} catch (error) {
+} catch (error)
+ {
     console.error("CRITICAL: Could not register the font with node-canvas.", error);
 }
 
@@ -28,32 +29,36 @@ type Album = {
 };
 
 /**
- * Generates a transparent PNG buffer containing a list of text strings.
- * (No changes here)
+ * --- MODIFIED FUNCTION ---
+ * Generates a transparent PNG buffer with adjusted font size and vertical alignment.
  */
 async function generateTextBuffer(texts: string[], width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    ctx.font = '12px "DejaVu"';
+    // --- CHANGE: Font size increased to 14px ---
+    ctx.font = '14px "DejaVu"';
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
     ctx.textBaseline = 'top';
 
-    const lineHeight = 18;
-    const totalTextHeight = texts.length * lineHeight;
-    let startY = (height - totalTextHeight) / 2;
+    // --- CHANGE: Line height adjusted for the larger font ---
+    const lineHeight = 22; 
+    
+    // --- CHANGE: Set a fixed starting Y position for top-alignment ---
+    // This adds a small padding from the top of the image row.
+    let startY = 15;
 
     let x;
     if (anchor === 'center') {
         x = width / 2;
     } else { // 'start'
-        x = 5;
+        x = 10; // Increased padding from the left edge
     }
     
     texts.forEach(text => {
         ctx.fillText(text, x, startY);
-        startY += lineHeight;
+        startY += lineHeight; // Move down for the next line
     });
 
     return canvas.toBuffer('image/png');
@@ -70,13 +75,11 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 
 /**
  * --- MODIFIED FUNCTION ---
- * Creates the chart image with an adjusted text box width for the 'topster' style.
+ * Adjusted the character truncation limit for the new font size.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
     const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
     const underTextHeight = displayStyle === 'under' ? 40 : 0;
-    
-    // --- CHANGE: Increased the width of the text box ---
     const topsterTextWidth = displayStyle === 'topster' ? 450 : 0;
 
     const canvasWidth = imageSize * gridWidth + topsterTextWidth;
@@ -134,8 +137,8 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             
             const albumNames = rowAlbums.map(album => {
                 const fullName = `${album.artist.name} - ${album.name}`;
-                // --- CHANGE: Increased the character limit before truncating ---
-                return fullName.length > 55 ? fullName.substring(0, 52) + '...' : fullName;
+                // --- CHANGE: Reduced character limit to prevent overflow with larger font ---
+                return fullName.length > 48 ? fullName.substring(0, 45) + '...' : fullName;
             });
 
             const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start');

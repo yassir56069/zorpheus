@@ -9,14 +9,16 @@ import sharp from 'sharp';
 import path from 'path';
 import { createCanvas, registerFont } from 'canvas';
 
-// --- FONT REGISTRATION (No changes here) ---
+// --- FONT REGISTRATION ---
 try {
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'JackInput.ttf');
-    registerFont(fontPath, { family: 'DejaVu' });
-    console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
+    // --- CHANGE: Using Courier New font file. Make sure 'cour.ttf' is in public/fonts/ ---
+    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'cour.ttf');
+    // We can still use the 'family' name 'Courier New' for consistency in the code.
+    registerFont(fontPath, { family: 'Courier New' });
+    console.log("Font 'cour.ttf' (Courier New) registered successfully with node-canvas.");
 } catch (error)
  {
-    console.error("CRITICAL: Could not register the font with node-canvas.", error);
+    console.error("CRITICAL: Could not register the font. Make sure 'public/fonts/cour.ttf' exists.", error);
 }
 
 // Define a type for the album data
@@ -30,35 +32,37 @@ type Album = {
 
 /**
  * --- MODIFIED FUNCTION ---
- * Generates a transparent PNG buffer with adjusted font size and vertical alignment.
+ * Now accepts font size and line height to allow for dynamic text rendering.
  */
-async function generateTextBuffer(texts: string[], width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
+async function generateTextBuffer(
+    texts: string[],
+    width: number,
+    height: number,
+    anchor: 'start' | 'center' | 'end' = 'start',
+    fontSize: number,
+    lineHeight: number
+): Promise<Buffer> {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // --- CHANGE: Font size increased to 14px ---
-    ctx.font = 'bold 15px "DejaVu"';
+    // --- CHANGE: Font properties are now dynamic based on passed parameters ---
+    ctx.font = `bold ${fontSize}px "Courier New"`;
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
     ctx.textBaseline = 'top';
-
-    // --- CHANGE: Line height adjusted for the larger font ---
-    const lineHeight = 21; 
     
-    // --- CHANGE: Set a fixed starting Y position for top-alignment ---
-    // This adds a small padding from the top of the image row.
     let startY = 15;
 
     let x;
     if (anchor === 'center') {
         x = width / 2;
     } else { // 'start'
-        x = 10; // Increased padding from the left edge
+        x = 10;
     }
     
     texts.forEach(text => {
         ctx.fillText(text, x, startY);
-        startY += lineHeight; // Move down for the next line
+        startY += lineHeight;
     });
 
     return canvas.toBuffer('image/png');
@@ -75,12 +79,27 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 
 /**
  * --- MODIFIED FUNCTION ---
- * Adjusted the character truncation limit for the new font size.
+ * Determines font size, line height, and character limits based on grid dimensions.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
-    const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
+    const imageSize = gridWidth > 8 || gridHeight > 8 ? 150 : 300; // Adjusted trigger for smaller images
     const underTextHeight = displayStyle === 'under' ? 40 : 0;
     const topsterTextWidth = displayStyle === 'topster' ? 450 : 0;
+
+    // --- NEW: Dynamic text property logic ---
+    let fontSize, lineHeight, charLimit;
+    // Check for dense charts that use the smaller image size
+    if (imageSize === 150) {
+        fontSize = 11; // Smaller font for dense charts
+        lineHeight = 15; // Tighter line spacing
+        charLimit = 60; // More characters can fit
+        console.log(`Dense chart detected (${gridWidth}x${gridHeight}). Using smaller font size.`);
+    } else {
+        fontSize = 14; // Standard font size
+        lineHeight = 22;
+        charLimit = 48; // Standard character limit
+    }
+    // --- END NEW ---
 
     const canvasWidth = imageSize * gridWidth + topsterTextWidth;
     const canvasHeight = (imageSize + underTextHeight) * gridHeight;
@@ -96,7 +115,7 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
     const compositeOperations = [];
 
-    // --- Part 1: Composite all the album covers and 'under' style text ---
+    // Part 1: Composite album covers and 'under' style text
     for (let index = 0; index < albums.length; index++) {
         const album = albums[index];
         const row = Math.floor(index / gridWidth);
@@ -122,12 +141,13 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         if (displayStyle === 'under') {
             const albumName = `${album.artist.name} - ${album.name}`;
             const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
-            const textBuffer = await generateTextBuffer([truncatedText], imageSize, underTextHeight, 'center');
+            // Pass dynamic text properties
+            const textBuffer = await generateTextBuffer([truncatedText], imageSize, underTextHeight, 'center', fontSize, lineHeight);
             compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
         }
     }
 
-    // --- Part 2: Handle 'topster' style text (operates per-row) ---
+    // Part 2: Handle 'topster' style text
     if (displayStyle === 'topster') {
         const background = await sharp({ create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' } }).png().toBuffer();
         compositeOperations.push({ input: background, left: imageSize * gridWidth, top: 0 });
@@ -137,11 +157,12 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             
             const albumNames = rowAlbums.map(album => {
                 const fullName = `${album.artist.name} - ${album.name}`;
-                // --- CHANGE: Reduced character limit to prevent overflow with larger font ---
-                return fullName.length > 48 ? fullName.substring(0, 45) + '...' : fullName;
+                // Use dynamic character limit
+                return fullName.length > charLimit ? fullName.substring(0, charLimit - 3) + '...' : fullName;
             });
 
-            const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start');
+            // Pass dynamic text properties
+            const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start', fontSize, lineHeight);
             const top = row * (imageSize + underTextHeight);
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }
@@ -168,7 +189,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
-    const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
+    const displayStyle = options.find(opt => opt.name === 'display_style')?.value || 'no_names';
 
 
     if (!lastfmUsername) {

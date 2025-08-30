@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-// Define a type for the album data we need
+// Define a type for the album data
 type Album = {
     name: string;
     artist: {
@@ -18,9 +18,8 @@ type Album = {
     image: { '#text': string, size: string }[];
 };
 
-// --- MODIFICATION START: FONT LOADING ---
-// Load the font and convert it to a Base64 data URI.
-// This is done once when the serverless function initializes for better performance.
+// --- FONT LOADING ---
+// This part remains the same. We load the font file to embed it.
 let fontCss = '';
 try {
     const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
@@ -34,34 +33,65 @@ try {
     `;
 } catch (error) {
     console.error("Could not load the font file. Make sure 'public/fonts/DejaVuSans.ttf' exists.", error);
-    // If the font fails to load, text will not be rendered.
 }
-// --- MODIFICATION END ---
 
-async function fetchImageBuffer(string: string): Promise<Buffer> {
-    const response = await fetch(string);
+// --- NEW HELPER FUNCTION ---
+/**
+ * Generates a transparent PNG buffer containing the provided text.
+ * This function isolates the text rendering process.
+ * @param text The text to render.
+ * @param width The width of the output image.
+ * @param height The height of the output image.
+ * @param anchor The text-anchor property for SVG ('start', 'middle', 'end').
+ * @returns A Promise that resolves with the PNG image Buffer.
+ */
+async function generateTextBuffer(text: string, width: number, height: number, anchor: 'start' | 'middle' = 'start'): Promise<Buffer> {
+    // Helper to escape special XML characters
+    const escapeXml = (unsafe: string) => unsafe.replace(/[<>&'"]/g, c => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+            default: return c;
+        }
+    });
+
+    const sanitizedText = escapeXml(text);
+    const x = anchor === 'middle' ? '50%' : '5';
+
+    const svg = `
+        <svg width="${width}" height="${height}">
+            <defs><style>${fontCss}</style></defs>
+            <text x="${x}" y="50%" dominant-baseline="middle" text-anchor="${anchor}" fill="white" font-size="12" font-family="'DejaVu Sans', sans-serif">
+                ${sanitizedText}
+            </text>
+        </svg>
+    `;
+
+    return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+async function fetchImageBuffer(url: string): Promise<Buffer> {
+    const response = await fetch(url);
     if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText} for URL: ${string}`);
+        throw new Error(`Failed to fetch image: ${response.statusText} for URL: ${url}`);
     }
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
 }
 
 /**
- * Creates a dynamic grid image from a list of album cover URLs.
- * @param albums An array of album objects from the Last.fm API.
- * @param gridWidth The number of images per row.
- * @param gridHeight The number of rows.
- * @param displayStyle The style to display album names ('no_names', 'topster', 'under').
- * @returns A Promise that resolves with the generated image Buffer in PNG format.
+ * Creates the chart image by compositing album covers and pre-rendered text buffers.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
     const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
-    const textHeight = displayStyle === 'under' ? 40 : 0;
-    const topsterTextWidth = displayStyle === 'topster' ? 250 : 0; // Adjusted width for text column
+    const underTextHeight = displayStyle === 'under' ? 40 : 0;
+    const topsterTextWidth = displayStyle === 'topster' ? 250 : 0;
 
     const canvasWidth = imageSize * gridWidth + topsterTextWidth;
-    const canvasHeight = (imageSize + textHeight) * gridHeight;
+    const canvasHeight = (imageSize + underTextHeight) * gridHeight;
 
     const canvas = sharp({
         create: {
@@ -76,15 +106,10 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
     // Add black background for Topster style text column
     if (displayStyle === 'topster') {
-        compositeOperations.push({
-            input: Buffer.from(
-                `<svg width="${topsterTextWidth}" height="${canvasHeight}">
-                    <rect x="0" y="0" width="${topsterTextWidth}" height="${canvasHeight}" fill="black" />
-                </svg>`
-            ),
-            left: imageSize * gridWidth,
-            top: 0
-        });
+        const background = await sharp({
+            create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' }
+        }).png().toBuffer();
+        compositeOperations.push({ input: background, left: imageSize * gridWidth, top: 0 });
     }
 
     for (let index = 0; index < albums.length; index++) {
@@ -92,80 +117,47 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         const row = Math.floor(index / gridWidth);
         const col = index % gridWidth;
         const left = col * imageSize;
-        const top = row * (imageSize + textHeight);
+        const top = row * (imageSize + underTextHeight);
 
-        // Fetch and composite album cover
+        // 1. Composite Album Cover
         try {
             const imageUrl = album.image.find((img) => img.size === 'extralarge')?.['#text'] ||
                              album.image.find((img) => img.size === 'large')?.['#text'] ||
                              'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art';
-            
             const finalImageUrl = imageUrl.includes('/2a96cbd8b46e442fc41c2b86b821562f.png') ? 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art' : imageUrl;
 
             const imageBuffer = await fetchImageBuffer(finalImageUrl);
             const resizedImage = await sharp(imageBuffer).resize(imageSize, imageSize).toBuffer();
-            compositeOperations.push({
-                input: resizedImage,
-                left: left,
-                top: top,
-            });
+            compositeOperations.push({ input: resizedImage, left, top });
         } catch (error) {
             console.error(`Failed to process image for ${album.name}:`, error);
-            const placeholder = await sharp({
-                create: { width: imageSize, height: imageSize, channels: 4, background: { r: 50, g: 50, b: 50, alpha: 1 } }
-            }).png().toBuffer();
-            compositeOperations.push({ input: placeholder, left: left, top: top });
+            const placeholder = await sharp({ create: { width: imageSize, height: imageSize, channels: 4, background: { r: 50, g: 50, b: 50, alpha: 1 } } }).png().toBuffer();
+            compositeOperations.push({ input: placeholder, left, top });
         }
 
-        // --- MODIFICATION START: SVG TEXT RENDERING ---
-        // Helper function to escape special XML characters
-        const escapeXml = (unsafe: string) => unsafe.replace(/[<>&'"]/g, (c) => {
-            switch (c) {
-                case '<': return '&lt;';
-                case '>': return '&gt;';
-                case '&': return '&amp;';
-                case '\'': return '&apos;';
-                case '"': return '&quot;';
-                default: return c;
-            }
-        });
-
-        const albumName = escapeXml(`${album.artist.name} - ${album.name}`);
+        // 2. Generate and Composite Text (if needed)
+        const albumName = `${album.artist.name} - ${album.name}`;
 
         if (displayStyle === 'under') {
-            const svgText = `
-                <svg width="${imageSize}" height="${textHeight}">
-                    <defs><style>${fontCss}</style></defs>
-                    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="12" font-family="'DejaVu Sans', sans-serif">
-                        ${albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName}
-                    </text>
-                </svg>`;
-            compositeOperations.push({ input: Buffer.from(svgText), left: left, top: top + imageSize });
+            const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
+            const textBuffer = await generateTextBuffer(truncatedText, imageSize, underTextHeight, 'middle');
+            compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
         } else if (displayStyle === 'topster') {
-             const textXOffset = imageSize * gridWidth + 10;
-             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-             const textYOffset = row * (imageSize + textHeight) + (imageSize / gridHeight / 2) + 5; // Center text vertically
-             const svgText = `
-                <svg width="${topsterTextWidth}" height="${imageSize}">
-                     <defs><style>${fontCss}</style></defs>
-                     <text x="5" y="${imageSize/2}" dominant-baseline="middle" fill="white" font-size="12" font-family="'DejaVu Sans', sans-serif">
-                        ${albumName.length > 35 ? albumName.substring(0, 32) + '...' : albumName}
-                     </text>
-                </svg>
-             `;
-             compositeOperations.push({input: Buffer.from(svgText), left: textXOffset, top: top});
+            const truncatedText = albumName.length > 35 ? albumName.substring(0, 32) + '...' : albumName;
+            const textBuffer = await generateTextBuffer(truncatedText, topsterTextWidth, imageSize, 'start');
+            compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }
-        // --- MODIFICATION END ---
     }
 
     return canvas.composite(compositeOperations).png().toBuffer();
 }
 
+
 /**
  * Handles the logic for the /chart command.
  */
 export async function handleChart(interaction: APIChatInputApplicationCommandInteraction) {
-    // ... (the rest of your handleChart function remains the same)
+    // ... This function remains exactly the same as your last version ...
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
@@ -211,10 +203,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
 
         const albums: Album[] = data.topalbums.album;
-
-        // Generate the chart with the specified dimensions and display style
         const chartImageBuffer = await createChartImage(albums, gridWidth, gridHeight, displayStyle);
-
 
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');

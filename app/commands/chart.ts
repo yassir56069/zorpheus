@@ -11,7 +11,7 @@ import { createCanvas, registerFont } from 'canvas';
 
 // --- FONT REGISTRATION (No changes here) ---
 try {
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'MODENINE.ttf');
+    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'JackInput.ttf');
     registerFont(fontPath, { family: 'DejaVu' });
     console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
 } catch (error)
@@ -37,7 +37,7 @@ async function generateTextBuffer(texts: string[], width: number, height: number
     const ctx = canvas.getContext('2d');
 
     // --- CHANGE: Font size increased to 14px ---
-    ctx.font = 'bold 14px "DejaVu"';
+    ctx.font = 'bold 15px "DejaVu"';
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
     ctx.textBaseline = 'top';

@@ -28,30 +28,22 @@ type Album = {
 };
 
 /**
- * --- MODIFIED FUNCTION ---
  * Generates a transparent PNG buffer containing a list of text strings.
- * @param texts An array of strings to render.
- * @param width The width of the output image.
- * @param height The height of the output image.
- * @param anchor The text-anchor property ('start', 'center', 'end').
- * @returns A Promise that resolves with the PNG image Buffer.
+ * (No changes here)
  */
 async function generateTextBuffer(texts: string[], width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Set font properties
     ctx.font = '12px "DejaVu"';
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
-    ctx.textBaseline = 'top'; // Use 'top' for predictable line-by-line drawing
+    ctx.textBaseline = 'top';
 
-    const lineHeight = 18; // The space between each line of text
-    // Calculate the starting Y position to vertically center the entire block of text
+    const lineHeight = 18;
     const totalTextHeight = texts.length * lineHeight;
     let startY = (height - totalTextHeight) / 2;
 
-    // Determine the x-coordinate based on the anchor
     let x;
     if (anchor === 'center') {
         x = width / 2;
@@ -59,10 +51,9 @@ async function generateTextBuffer(texts: string[], width: number, height: number
         x = 5;
     }
     
-    // --- NEW LOGIC: Loop through each line of text and draw it with an offset ---
     texts.forEach(text => {
         ctx.fillText(text, x, startY);
-        startY += lineHeight; // Move down for the next line
+        startY += lineHeight;
     });
 
     return canvas.toBuffer('image/png');
@@ -79,12 +70,14 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 
 /**
  * --- MODIFIED FUNCTION ---
- * Creates the chart image. The logic for 'topster' style is now separated to handle text on a per-row basis.
+ * Creates the chart image with an adjusted text box width for the 'topster' style.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
     const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
     const underTextHeight = displayStyle === 'under' ? 40 : 0;
-    const topsterTextWidth = displayStyle === 'topster' ? 250 : 0;
+    
+    // --- CHANGE: Increased the width of the text box ---
+    const topsterTextWidth = displayStyle === 'topster' ? 450 : 0;
 
     const canvasWidth = imageSize * gridWidth + topsterTextWidth;
     const canvasHeight = (imageSize + underTextHeight) * gridHeight;
@@ -108,7 +101,6 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         const left = col * imageSize;
         const top = row * (imageSize + underTextHeight);
 
-        // Composite the album cover
         try {
             const imageUrl = album.image.find((img) => img.size === 'extralarge')?.['#text'] ||
                              album.image.find((img) => img.size === 'large')?.['#text'] ||
@@ -124,7 +116,6 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             compositeOperations.push({ input: placeholder, left, top });
         }
 
-        // Handle 'under' style text (operates per-album)
         if (displayStyle === 'under') {
             const albumName = `${album.artist.name} - ${album.name}`;
             const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
@@ -135,25 +126,19 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
     // --- Part 2: Handle 'topster' style text (operates per-row) ---
     if (displayStyle === 'topster') {
-        // Add the black background for the text column
         const background = await sharp({ create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' } }).png().toBuffer();
         compositeOperations.push({ input: background, left: imageSize * gridWidth, top: 0 });
 
-        // Loop through each ROW of the grid
         for (let row = 0; row < gridHeight; row++) {
-            // Get all albums for the current row
             const rowAlbums = albums.slice(row * gridWidth, (row + 1) * gridWidth);
             
-            // Format and truncate the names for this row
             const albumNames = rowAlbums.map(album => {
                 const fullName = `${album.artist.name} - ${album.name}`;
-                return fullName.length > 35 ? fullName.substring(0, 32) + '...' : fullName;
+                // --- CHANGE: Increased the character limit before truncating ---
+                return fullName.length > 55 ? fullName.substring(0, 52) + '...' : fullName;
             });
 
-            // Generate a single image with the list of names
             const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start');
-            
-            // Composite the text image for the current row
             const top = row * (imageSize + underTextHeight);
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }

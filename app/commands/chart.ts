@@ -6,8 +6,20 @@ import {
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
-import fs from 'fs';
 import path from 'path';
+// --- MODIFICATION: Import the canvas library ---
+import { createCanvas, registerFont } from 'canvas';
+
+// --- MODIFICATION: Register the font directly with the canvas library ---
+// This happens only once when the serverless function initializes.
+try {
+    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
+    // We give our font a specific name to use later.
+    registerFont(fontPath, { family: 'DejaVu' });
+    console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
+} catch (error) {
+    console.error("CRITICAL: Could not register the font with node-canvas.", error);
+}
 
 // Define a type for the album data
 type Album = {
@@ -18,64 +30,42 @@ type Album = {
     image: { '#text': string, size: string }[];
 };
 
-// --- FONT LOADING with LOGGING ---
-let fontCss = '';
-try {
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
-    const fontBuffer = fs.readFileSync(fontPath);
-    const fontBase64 = fontBuffer.toString('base64');
-    fontCss = `
-        @font-face {
-            font-family: 'DejaVu Sans';
-            src: url(data:font/truetype;charset=utf-8;base64,${fontBase64}) format('truetype');
-        }
-    `;
-    // --- DIAGNOSTIC LOG ---
-    console.log(`Font loaded successfully. Base64 length: ${fontBase64.length}`);
-} catch (error) {
-    // --- DIAGNOSTIC LOG ---
-    console.error("CRITICAL: Could not load the font file. Text rendering will fail.", error);
-}
-
 /**
- * Generates a transparent PNG buffer containing the provided text.
- * This function isolates the text rendering process.
+ * --- COMPLETELY REWRITTEN FUNCTION ---
+ * Generates a transparent PNG buffer containing the provided text using node-canvas.
+ * This method is self-contained and does not rely on system-level font libraries.
  * @param text The text to render.
  * @param width The width of the output image.
  * @param height The height of the output image.
- * @param anchor The text-anchor property for SVG ('start', 'middle', 'end').
+ * @param anchor The text-anchor property ('start', 'center', 'end').
  * @returns A Promise that resolves with the PNG image Buffer.
  */
-async function generateTextBuffer(text: string, width: number, height: number, anchor: 'start' | 'middle' = 'start'): Promise<Buffer> {
-    const escapeXml = (unsafe: string) => unsafe.replace(/[<>&'"]/g, c => {
-        switch (c) {
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '&': return '&amp;';
-            case '\'': return '&apos;';
-            case '"': return '&quot;';
-            default: return c;
-        }
-    });
+async function generateTextBuffer(text: string, width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
 
-    // --- DIAGNOSTIC STEP: Add a test prefix ---
-    const diagnosticText = `[TEST] ${text}`;
-    const sanitizedText = escapeXml(diagnosticText);
+    // Set font properties using the family name we registered earlier.
+    ctx.font = '12px "DejaVu"';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = anchor;
+    ctx.textBaseline = 'middle';
 
-    const x = anchor === 'middle' ? '50%' : '5';
+    // Determine the x-coordinate based on the anchor
+    let x;
+    if (anchor === 'center') {
+        x = width / 2;
+    } else if (anchor === 'end') {
+        x = width - 5;
+    } else { // 'start'
+        x = 5;
+    }
 
-    const svg = `
-        <svg width="${width}" height="${height}">
-            <defs><style>${fontCss}</style></defs>
-            <text x="${x}" y="50%" dominant-baseline="middle" text-anchor="${anchor}" fill="white" font-size="12" font-family="'DejaVu Sans', sans-serif">
-                ${sanitizedText}
-            </text>
-        </svg>
-    `;
+    // Draw the text onto the canvas
+    ctx.fillText(text, x, height / 2);
 
-    return sharp(Buffer.from(svg)).png().toBuffer();
+    // Return the result as a PNG buffer
+    return canvas.toBuffer('image/png');
 }
-
 
 async function fetchImageBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
@@ -88,6 +78,7 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 
 /**
  * Creates the chart image by compositing album covers and pre-rendered text buffers.
+ * This function's logic is sound and does not need to change.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
     const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
@@ -138,16 +129,15 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         }
 
         const albumName = `${album.artist.name} - ${album.name}`;
-        
-        // --- DIAGNOSTIC LOG ---
-        console.log(`Attempting to render string: "${albumName}"`);
+        console.log(`Rendering string: "${albumName}"`);
 
         if (displayStyle === 'under') {
-            const truncatedText = albumName.length > 25 ? albumName.substring(0, 22) + '...' : albumName;
-            const textBuffer = await generateTextBuffer(truncatedText, imageSize, underTextHeight, 'middle');
+            const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
+            // Note the change from 'middle' to 'center' for canvas textAlign
+            const textBuffer = await generateTextBuffer(truncatedText, imageSize, underTextHeight, 'center');
             compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
         } else if (displayStyle === 'topster') {
-            const truncatedText = albumName.length > 25 ? albumName.substring(0, 22) + '...' : albumName;
+            const truncatedText = albumName.length > 35 ? albumName.substring(0, 32) + '...' : albumName;
             const textBuffer = await generateTextBuffer(truncatedText, topsterTextWidth, imageSize, 'start');
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }
@@ -159,9 +149,9 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
 /**
  * Handles the logic for the /chart command.
+ * THIS FUNCTION REMAINS UNCHANGED.
  */
 export async function handleChart(interaction: APIChatInputApplicationCommandInteraction) {
-    // ... This function remains exactly the same ...
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),

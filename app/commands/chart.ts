@@ -18,8 +18,7 @@ type Album = {
     image: { '#text': string, size: string }[];
 };
 
-// --- FONT LOADING ---
-// This part remains the same. We load the font file to embed it.
+// --- FONT LOADING with LOGGING ---
 let fontCss = '';
 try {
     const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
@@ -31,11 +30,13 @@ try {
             src: url(data:font/truetype;charset=utf-8;base64,${fontBase64}) format('truetype');
         }
     `;
+    // --- DIAGNOSTIC LOG ---
+    console.log(`Font loaded successfully. Base64 length: ${fontBase64.length}`);
 } catch (error) {
-    console.error("Could not load the font file. Make sure 'public/fonts/DejaVuSans.ttf' exists.", error);
+    // --- DIAGNOSTIC LOG ---
+    console.error("CRITICAL: Could not load the font file. Text rendering will fail.", error);
 }
 
-// --- NEW HELPER FUNCTION ---
 /**
  * Generates a transparent PNG buffer containing the provided text.
  * This function isolates the text rendering process.
@@ -46,7 +47,6 @@ try {
  * @returns A Promise that resolves with the PNG image Buffer.
  */
 async function generateTextBuffer(text: string, width: number, height: number, anchor: 'start' | 'middle' = 'start'): Promise<Buffer> {
-    // Helper to escape special XML characters
     const escapeXml = (unsafe: string) => unsafe.replace(/[<>&'"]/g, c => {
         switch (c) {
             case '<': return '&lt;';
@@ -58,7 +58,10 @@ async function generateTextBuffer(text: string, width: number, height: number, a
         }
     });
 
-    const sanitizedText = escapeXml(text);
+    // --- DIAGNOSTIC STEP: Add a test prefix ---
+    const diagnosticText = `[TEST] ${text}`;
+    const sanitizedText = escapeXml(diagnosticText);
+
     const x = anchor === 'middle' ? '50%' : '5';
 
     const svg = `
@@ -72,6 +75,7 @@ async function generateTextBuffer(text: string, width: number, height: number, a
 
     return sharp(Buffer.from(svg)).png().toBuffer();
 }
+
 
 async function fetchImageBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
@@ -104,7 +108,6 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
     const compositeOperations = [];
 
-    // Add black background for Topster style text column
     if (displayStyle === 'topster') {
         const background = await sharp({
             create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' }
@@ -119,7 +122,6 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         const left = col * imageSize;
         const top = row * (imageSize + underTextHeight);
 
-        // 1. Composite Album Cover
         try {
             const imageUrl = album.image.find((img) => img.size === 'extralarge')?.['#text'] ||
                              album.image.find((img) => img.size === 'large')?.['#text'] ||
@@ -135,15 +137,17 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             compositeOperations.push({ input: placeholder, left, top });
         }
 
-        // 2. Generate and Composite Text (if needed)
         const albumName = `${album.artist.name} - ${album.name}`;
+        
+        // --- DIAGNOSTIC LOG ---
+        console.log(`Attempting to render string: "${albumName}"`);
 
         if (displayStyle === 'under') {
-            const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
+            const truncatedText = albumName.length > 25 ? albumName.substring(0, 22) + '...' : albumName;
             const textBuffer = await generateTextBuffer(truncatedText, imageSize, underTextHeight, 'middle');
             compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
         } else if (displayStyle === 'topster') {
-            const truncatedText = albumName.length > 35 ? albumName.substring(0, 32) + '...' : albumName;
+            const truncatedText = albumName.length > 25 ? albumName.substring(0, 22) + '...' : albumName;
             const textBuffer = await generateTextBuffer(truncatedText, topsterTextWidth, imageSize, 'start');
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }
@@ -157,7 +161,7 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
  * Handles the logic for the /chart command.
  */
 export async function handleChart(interaction: APIChatInputApplicationCommandInteraction) {
-    // ... This function remains exactly the same as your last version ...
+    // ... This function remains exactly the same ...
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),

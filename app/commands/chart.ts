@@ -10,15 +10,19 @@ import path from 'path';
 import { createCanvas, registerFont } from 'canvas';
 
 // --- FONT REGISTRATION ---
+// We now register two fonts: Courier New for primary text, and a CJK font for fallbacks.
 try {
-    // --- CHANGE: Using Courier New font file. Make sure 'cour.ttf' is in public/fonts/ ---
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'cour.ttf');
-    // We can still use the 'family' name 'Courier New' for consistency in the code.
-    registerFont(fontPath, { family: 'Courier New' });
-    console.log("Font 'cour.ttf' (Courier New) registered successfully with node-canvas.");
-} catch (error)
- {
-    console.error("CRITICAL: Could not register the font. Make sure 'public/fonts/cour.ttf' exists.", error);
+    const primaryFontPath = path.join(process.cwd(), 'public', 'fonts', 'cour.ttf');
+    registerFont(primaryFontPath, { family: 'Courier New' });
+    console.log("Primary font 'cour.ttf' (Courier New) registered successfully.");
+
+    // --- NEW: Register the CJK fallback font ---
+    const fallbackFontPath = path.join(process.cwd(), 'public', 'fonts', 'NotoSansJP-Bold.ttf');
+    registerFont(fallbackFontPath, { family: 'Noto Sans JP' });
+    console.log("Fallback font 'NotoSansJP-Bold.ttf' registered successfully.");
+
+} catch (error) {
+    console.error("CRITICAL: Could not register fonts. Make sure 'cour.ttf' and 'NotoSansJP-Bold.ttf' exist in public/fonts/.", error);
 }
 
 // Define a type for the album data
@@ -32,7 +36,7 @@ type Album = {
 
 /**
  * --- MODIFIED FUNCTION ---
- * Now accepts font size and line height to allow for dynamic text rendering.
+ * The font property now includes a comma-separated fallback font family.
  */
 async function generateTextBuffer(
     texts: string[],
@@ -45,20 +49,15 @@ async function generateTextBuffer(
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // --- CHANGE: Font properties are now dynamic based on passed parameters ---
-    ctx.font = `bold ${fontSize}px "Courier New"`;
+    // --- CHANGE: Added "Noto Sans JP" as the second font in the list. ---
+    // The renderer will try Courier New first, and if a character is missing, it will use Noto Sans JP.
+    ctx.font = `bold ${fontSize}px "Courier New", "Noto Sans JP"`;
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
     ctx.textBaseline = 'top';
     
     let startY = 15;
-
-    let x;
-    if (anchor === 'center') {
-        x = width / 2;
-    } else { // 'start'
-        x = 10;
-    }
+    const x = anchor === 'center' ? width / 2 : 10;
     
     texts.forEach(text => {
         ctx.fillText(text, x, startY);
@@ -78,28 +77,24 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 }
 
 /**
- * --- MODIFIED FUNCTION ---
- * Determines font size, line height, and character limits based on grid dimensions.
+ * This function remains unchanged from the previous version.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
-    const imageSize = gridWidth > 8 || gridHeight > 8 ? 150 : 300; // Adjusted trigger for smaller images
+    const imageSize = gridWidth > 8 || gridHeight > 8 ? 150 : 300;
     const underTextHeight = displayStyle === 'under' ? 40 : 0;
     const topsterTextWidth = displayStyle === 'topster' ? 450 : 0;
 
-    // --- NEW: Dynamic text property logic ---
     let fontSize, lineHeight, charLimit;
-    // Check for dense charts that use the smaller image size
     if (imageSize === 150) {
-        fontSize = 11; // Smaller font for dense charts
-        lineHeight = 15; // Tighter line spacing
-        charLimit = 60; // More characters can fit
+        fontSize = 11;
+        lineHeight = 15;
+        charLimit = 60;
         console.log(`Dense chart detected (${gridWidth}x${gridHeight}). Using smaller font size.`);
     } else {
-        fontSize = 14; // Standard font size
+        fontSize = 14;
         lineHeight = 22;
-        charLimit = 48; // Standard character limit
+        charLimit = 48;
     }
-    // --- END NEW ---
 
     const canvasWidth = imageSize * gridWidth + topsterTextWidth;
     const canvasHeight = (imageSize + underTextHeight) * gridHeight;
@@ -141,7 +136,6 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         if (displayStyle === 'under') {
             const albumName = `${album.artist.name} - ${album.name}`;
             const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
-            // Pass dynamic text properties
             const textBuffer = await generateTextBuffer([truncatedText], imageSize, underTextHeight, 'center', fontSize, lineHeight);
             compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
         }
@@ -157,11 +151,9 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             
             const albumNames = rowAlbums.map(album => {
                 const fullName = `${album.artist.name} - ${album.name}`;
-                // Use dynamic character limit
                 return fullName.length > charLimit ? fullName.substring(0, charLimit - 3) + '...' : fullName;
             });
 
-            // Pass dynamic text properties
             const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start', fontSize, lineHeight);
             const top = row * (imageSize + underTextHeight);
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
@@ -189,7 +181,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
-    const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
+    const displayStyle = options.find(opt => opt.name === 'display_style')?.value || 'no_names';
 
 
     if (!lastfmUsername) {

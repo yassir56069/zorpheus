@@ -7,14 +7,11 @@ import {
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 import path from 'path';
-// --- MODIFICATION: Import the canvas library ---
 import { createCanvas, registerFont } from 'canvas';
 
-// --- MODIFICATION: Register the font directly with the canvas library ---
-// This happens only once when the serverless function initializes.
+// --- FONT REGISTRATION (No changes here) ---
 try {
     const fontPath = path.join(process.cwd(), 'public', 'fonts', 'DejaVuSans.ttf');
-    // We give our font a specific name to use later.
     registerFont(fontPath, { family: 'DejaVu' });
     console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
 } catch (error) {
@@ -31,39 +28,43 @@ type Album = {
 };
 
 /**
- * --- COMPLETELY REWRITTEN FUNCTION ---
- * Generates a transparent PNG buffer containing the provided text using node-canvas.
- * This method is self-contained and does not rely on system-level font libraries.
- * @param text The text to render.
+ * --- MODIFIED FUNCTION ---
+ * Generates a transparent PNG buffer containing a list of text strings.
+ * @param texts An array of strings to render.
  * @param width The width of the output image.
  * @param height The height of the output image.
  * @param anchor The text-anchor property ('start', 'center', 'end').
  * @returns A Promise that resolves with the PNG image Buffer.
  */
-async function generateTextBuffer(text: string, width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
+async function generateTextBuffer(texts: string[], width: number, height: number, anchor: 'start' | 'center' | 'end' = 'start'): Promise<Buffer> {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Set font properties using the family name we registered earlier.
+    // Set font properties
     ctx.font = '12px "DejaVu"';
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'top'; // Use 'top' for predictable line-by-line drawing
+
+    const lineHeight = 18; // The space between each line of text
+    // Calculate the starting Y position to vertically center the entire block of text
+    const totalTextHeight = texts.length * lineHeight;
+    let startY = (height - totalTextHeight) / 2;
 
     // Determine the x-coordinate based on the anchor
     let x;
     if (anchor === 'center') {
         x = width / 2;
-    } else if (anchor === 'end') {
-        x = width - 5;
     } else { // 'start'
         x = 5;
     }
+    
+    // --- NEW LOGIC: Loop through each line of text and draw it with an offset ---
+    texts.forEach(text => {
+        ctx.fillText(text, x, startY);
+        startY += lineHeight; // Move down for the next line
+    });
 
-    // Draw the text onto the canvas
-    ctx.fillText(text, x, height / 2);
-
-    // Return the result as a PNG buffer
     return canvas.toBuffer('image/png');
 }
 
@@ -77,8 +78,8 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 }
 
 /**
- * Creates the chart image by compositing album covers and pre-rendered text buffers.
- * This function's logic is sound and does not need to change.
+ * --- MODIFIED FUNCTION ---
+ * Creates the chart image. The logic for 'topster' style is now separated to handle text on a per-row basis.
  */
 async function createChartImage(albums: Album[], gridWidth: number, gridHeight: number, displayStyle: string): Promise<Buffer> {
     const imageSize = gridWidth > 5 || gridHeight > 5 ? 150 : 300;
@@ -99,13 +100,7 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
 
     const compositeOperations = [];
 
-    if (displayStyle === 'topster') {
-        const background = await sharp({
-            create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' }
-        }).png().toBuffer();
-        compositeOperations.push({ input: background, left: imageSize * gridWidth, top: 0 });
-    }
-
+    // --- Part 1: Composite all the album covers and 'under' style text ---
     for (let index = 0; index < albums.length; index++) {
         const album = albums[index];
         const row = Math.floor(index / gridWidth);
@@ -113,6 +108,7 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         const left = col * imageSize;
         const top = row * (imageSize + underTextHeight);
 
+        // Composite the album cover
         try {
             const imageUrl = album.image.find((img) => img.size === 'extralarge')?.['#text'] ||
                              album.image.find((img) => img.size === 'large')?.['#text'] ||
@@ -128,17 +124,37 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
             compositeOperations.push({ input: placeholder, left, top });
         }
 
-        const albumName = `${album.artist.name} - ${album.name}`;
-        console.log(`Rendering string: "${albumName}"`);
-
+        // Handle 'under' style text (operates per-album)
         if (displayStyle === 'under') {
+            const albumName = `${album.artist.name} - ${album.name}`;
             const truncatedText = albumName.length > 40 ? albumName.substring(0, 37) + '...' : albumName;
-            // Note the change from 'middle' to 'center' for canvas textAlign
-            const textBuffer = await generateTextBuffer(truncatedText, imageSize, underTextHeight, 'center');
+            const textBuffer = await generateTextBuffer([truncatedText], imageSize, underTextHeight, 'center');
             compositeOperations.push({ input: textBuffer, left, top: top + imageSize });
-        } else if (displayStyle === 'topster') {
-            const truncatedText = albumName.length > 35 ? albumName.substring(0, 32) + '...' : albumName;
-            const textBuffer = await generateTextBuffer(truncatedText, topsterTextWidth, imageSize, 'start');
+        }
+    }
+
+    // --- Part 2: Handle 'topster' style text (operates per-row) ---
+    if (displayStyle === 'topster') {
+        // Add the black background for the text column
+        const background = await sharp({ create: { width: topsterTextWidth, height: canvasHeight, channels: 3, background: 'black' } }).png().toBuffer();
+        compositeOperations.push({ input: background, left: imageSize * gridWidth, top: 0 });
+
+        // Loop through each ROW of the grid
+        for (let row = 0; row < gridHeight; row++) {
+            // Get all albums for the current row
+            const rowAlbums = albums.slice(row * gridWidth, (row + 1) * gridWidth);
+            
+            // Format and truncate the names for this row
+            const albumNames = rowAlbums.map(album => {
+                const fullName = `${album.artist.name} - ${album.name}`;
+                return fullName.length > 35 ? fullName.substring(0, 32) + '...' : fullName;
+            });
+
+            // Generate a single image with the list of names
+            const textBuffer = await generateTextBuffer(albumNames, topsterTextWidth, imageSize, 'start');
+            
+            // Composite the text image for the current row
+            const top = row * (imageSize + underTextHeight);
             compositeOperations.push({ input: textBuffer, left: imageSize * gridWidth, top });
         }
     }

@@ -11,7 +11,7 @@ import { createCanvas, registerFont } from 'canvas';
 
 // --- FONT REGISTRATION (No changes here) ---
 try {
-    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'JackInput.ttf');
+    const fontPath = path.join(process.cwd(), 'public', 'fonts', 'MODENINE.ttf');
     registerFont(fontPath, { family: 'DejaVu' });
     console.log("Font 'DejaVuSans.ttf' registered successfully with node-canvas.");
 } catch (error)
@@ -43,7 +43,7 @@ async function generateTextBuffer(texts: string[], width: number, height: number
     ctx.textBaseline = 'top';
 
     // --- CHANGE: Line height adjusted for the larger font ---
-    const lineHeight = 22; 
+    const lineHeight = 21; 
     
     // --- CHANGE: Set a fixed starting Y position for top-alignment ---
     // This adds a small padding from the top of the image row.

@@ -37,7 +37,7 @@ async function generateTextBuffer(texts: string[], width: number, height: number
     const ctx = canvas.getContext('2d');
 
     // --- CHANGE: Font size increased to 14px ---
-    ctx.font = '14px "DejaVu"';
+    ctx.font = 'bold 14px "DejaVu"';
     ctx.fillStyle = 'white';
     ctx.textAlign = anchor;
     ctx.textBaseline = 'top';

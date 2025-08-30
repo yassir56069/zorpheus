@@ -168,7 +168,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
-    const displayStyle = options.find(opt => opt.name === 'display_style')?.value || 'no_names';
+    const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
 
 
     if (!lastfmUsername) {

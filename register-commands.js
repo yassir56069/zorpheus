@@ -130,7 +130,7 @@ const commands = [
         required: false
       },
       {
-        name: 'display_style',
+        name: 'labelling',
         description: 'How to display album names (default: No Names).',
         type: 3, // STRING
         required: false,

@@ -49,7 +49,7 @@ const commands = [
     ]
     },
 
-    
+
   {
     name: 'countdown',
     description: 'Starts a 5-second countdown.',
@@ -91,7 +91,7 @@ const commands = [
     ],
   },
   {
-    name: 'chart', // command here
+    name: 'chart',
     description: 'Generates a grid of your most listened to albums.',
     options: [
       {
@@ -142,8 +142,54 @@ const commands = [
       },
     ]
   },
+  // --- NEW COMMAND ADDED HERE ---
+  {
+    name: 'serverchart',
+    description: 'Generates a grid of the most listened to albums for the entire server.',
+    options: [
+      {
+        name: 'size',
+        description: 'The dimensions of the chart grid (default: 3x3).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: '3x3 (Default)', value: '3x3' },
+          { name: '4x4', value: '4x4' },
+          { name: '5x5', value: '5x5' },
+          { name: '8x5', value: '8x5' },
+          { name: '10x10', value: '10x10' },
+          { name: '4x8', value: '4x8' },
+          { name: '15x6', value: '15x6' },
+        ]
+      },
+      {
+        name: 'period',
+        description: 'The time period for the chart (default: 7day).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: 'Last 7 Days', value: '7day' },
+          { name: '1 Month', value: '1month' },
+          { name: '3 Months', value: '3month' },
+          { name: '6 Months', value: '6month' },
+          { name: '1 Year', value: '12month' },
+          { name: 'Overall', value: 'overall' },
+        ]
+      },
+      {
+        name: 'labelling',
+        description: 'How to display album names (default: No Names).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: 'No Names (Default)', value: 'no_names' },
+          { name: 'Topster Style', value: 'topster' },
+          { name: 'Names Under Albums', value: 'under' },
+        ],
+      },
+    ]
+  },
 ];
-
 
 const url = `https://discord.com/api/v10/applications/${applicationId}/commands`;
 

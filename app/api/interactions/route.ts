@@ -54,7 +54,7 @@ export async function POST(req: Request) {
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
             case 'serverchart': // Add a case for the new command
                 return await handleServerChart(interaction as APIChatInputApplicationCommandInteraction);
-            case 'leage': 
+            case 'league': 
                 return handleLeague(interaction as APIChatInputApplicationCommandInteraction)
             case 'rc': 
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);

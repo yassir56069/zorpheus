@@ -18,7 +18,7 @@ import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/cou
 // development 
 import { handleDev } from '@/app/sandbox/dev';
 import { handleProfile } from '@/app/commands/profile';
-import { handleChart } from '@/app/commands/chart';
+import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 
 export async function POST(req: Request) {
@@ -51,6 +51,8 @@ export async function POST(req: Request) {
                 return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
             case 'chart': 
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
+            case 'serverchart': // Add a case for the new command
+                return await handleServerChart(interaction);
             case 'rc': 
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':

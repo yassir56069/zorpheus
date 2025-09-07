@@ -20,6 +20,7 @@ import { handleDev } from '@/app/sandbox/dev';
 import { handleProfile } from '@/app/commands/profile';
 import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
+import { handleLeague } from '@/app/commands/league';
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
@@ -52,7 +53,9 @@ export async function POST(req: Request) {
             case 'chart': 
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
             case 'serverchart': // Add a case for the new command
-                return await handleServerChart(interaction);
+                return await handleServerChart(interaction as APIChatInputApplicationCommandInteraction);
+            case 'leage': 
+                return handleLeague(interaction as APIChatInputApplicationCommandInteraction)
             case 'rc': 
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':

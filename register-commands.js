@@ -142,6 +142,18 @@ const commands = [
       },
     ]
   },
+  {
+    name: 'league',
+    description: "Finds tracks in a Spotify playlist that are by the server's top artists.",
+    options: [
+      {
+        name: 'playlist',
+        description: 'The full URL of the Spotify playlist.',
+        type: 3, // STRING
+        required: true,
+      },
+    ]
+  },
   // --- NEW COMMAND ADDED HERE ---
   {
     name: 'serverchart',

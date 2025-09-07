@@ -144,14 +144,26 @@ const commands = [
   },
   {
     name: 'league',
-    description: "Finds tracks in a Spotify playlist that are by the server's top artists.",
+    description: "Server artist league commands.",
     options: [
       {
-        name: 'playlist',
-        description: 'The full URL of the Spotify playlist.',
-        type: 3, // STRING
-        required: true,
+        name: 'find',
+        description: "Finds tracks in a Spotify playlist by the server's top artists.",
+        type: 1, // This type indicates a SUB_COMMAND
+        options: [
+          {
+            name: 'playlist',
+            description: 'The full URL of the Spotify playlist.',
+            type: 3, // STRING
+            required: true,
+          },
+        ]
       },
+      {
+        name: 'banned',
+        description: "Displays the top 30 'banned' artists for the server league.",
+        type: 1, // This type indicates a SUB_COMMAND
+      }
     ]
   },
   // --- NEW COMMAND ADDED HERE ---

@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
-    APIApplicationCommandInteractionDataStringOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 
@@ -100,12 +99,68 @@ function extractPlaylistId(url: string): string | null {
     return match ? match[1] : null;
 }
 
+/**
+ * Fetches the server's top 30 artists from Last.fm, using a cache.
+ * Returns a sorted array of artist names.
+ */
+async function getServerTopArtists(): Promise<string[]> {
+    const cacheKey = 'league:server-top-artists-list'; // Use a new key that stores a simple array
+    const cachedArtists: string[] | null = await kv.get(cacheKey);
+
+    if (cachedArtists) {
+        console.log("CACHE HIT: Using cached Last.fm server artists list.");
+        return cachedArtists;
+    }
+
+    console.log("CACHE MISS: Fetching fresh Last.fm server artists.");
+    const userKeys: string[] = [];
+    for await (const key of kv.scanIterator()) { userKeys.push(key); }
+    if (userKeys.length === 0) { throw new Error('No users have registered with `/register`.'); }
+
+    const lastfmUsernames = (await kv.mget(...userKeys)) as string[];
+    const apiKey = process.env.LASTFM_API_KEY;
+
+    const fetchPromises = lastfmUsernames.map(username => {
+        if (!username) return null;
+        const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopartists&user=${username}&period=1month&api_key=${apiKey}&format=json&limit=50`;
+        return fetch(apiUrl).then(res => res.json());
+    }).filter(Boolean);
+
+    const results = await Promise.allSettled(fetchPromises);
+    const artistScrobbles = new Map<string, AggregatedArtist>();
+
+    for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.topartists) {
+            const artists: LastFmArtist[] = result.value.topartists.artist;
+            for (const artist of artists) {
+                const key = artist.name.toLowerCase();
+                const playCount = parseInt(artist.playcount, 10);
+                if (artistScrobbles.has(key)) {
+                    artistScrobbles.get(key)!.playcount += playCount;
+                } else {
+                    artistScrobbles.set(key, { name: artist.name, playcount: playCount });
+                }
+            }
+        }
+    }
+
+    const sortedArtists = Array.from(artistScrobbles.values())
+        .sort((a, b) => b.playcount - a.playcount)
+        .slice(0, 30)
+        .map(artist => artist.name); // We want the proper capitalization
+
+    if (sortedArtists.length > 0) {
+        // Cache the sorted list of names for 1 hour
+        await kv.set(cacheKey, sortedArtists, { ex: 3600 });
+    }
+
+    return sortedArtists;
+}
 
 /**
- * Handles the logic for the /league command with Caching and Debug Logging.
+ * --- MODIFIED: Handles the logic for the /league subcommands. ---
  */
 export async function handleLeague(interaction: APIChatInputApplicationCommandInteraction) {
-    // Defer the reply immediately so Discord knows we're working on it.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
@@ -113,128 +168,79 @@ export async function handleLeague(interaction: APIChatInputApplicationCommandIn
     });
 
     try {
-        const options = (interaction.data.options || []) as APIApplicationCommandInteractionDataStringOption[];
-        const playlistUrl = options.find(opt => opt.name === 'playlist')?.value;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const subcommand = (interaction.data.options?.[0] as any); // The subcommand object
 
-        if (!playlistUrl) { throw new Error("Playlist URL was not provided."); }
-        
-        const playlistId = extractPlaylistId(playlistUrl);
-        if (!playlistId) {
-            const content = 'That doesn\'t look like a valid Spotify playlist URL. Please provide a valid URL.';
+        // --- Subcommand Router ---
+        if (subcommand.name === 'banned') {
+            const topArtists = await getServerTopArtists();
+
+            if (topArtists.length === 0) {
+                throw new Error("Could not find any top artists for the server.");
+            }
+
+            const artistList = topArtists.map(artist => `- ${artist}`).join('\n');
+            const content = `**The following artists are banned for this league!**:\n\n${artistList}`;
+
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
+                method: 'PATCH',
+                body: JSON.stringify({ content }),
+                headers: { 'Content-Type': 'application/json' },
             });
-            return new NextResponse(null, { status: 204 });
-        }
 
-        // --- Part 1: Get Server's Top 30 Last.fm Artists (with Caching) ---
-        const serverArtistsCacheKey = 'league:server-top-artists';
-        let top30ArtistNames: Set<string> | null = await kv.get(serverArtistsCacheKey);
+        } else if (subcommand.name === 'find') {
+            const playlistUrl = subcommand.options?.find((opt: { name: string; }) => opt.name === 'playlist')?.value;
+            if (!playlistUrl) { throw new Error("Playlist URL was not provided."); }
+            
+            const playlistId = extractPlaylistId(playlistUrl);
+            if (!playlistId) { throw new Error("That doesn't look like a valid Spotify playlist URL."); }
 
-        if (!top30ArtistNames) {
-            console.log("CACHE MISS: Fetching fresh Last.fm server artists.");
-            const userKeys: string[] = [];
-            for await (const key of kv.scanIterator()) { userKeys.push(key); }
-            if (userKeys.length === 0) { throw new Error('No users have registered with `/register`.'); }
+            // 1. Get server top artists (from our new helper function)
+            const topArtists = await getServerTopArtists();
+            if (topArtists.length === 0) { throw new Error("Could not fetch any artist data for the server's registered users."); }
+            const topArtistSet = new Set(topArtists.map(a => a.toLowerCase()));
 
-            const lastfmUsernames = (await kv.mget(...userKeys)) as string[];
-            const apiKey = process.env.LASTFM_API_KEY;
+            // 2. Get Spotify tracks (with caching)
+            const playlistCacheKey = `league:playlist:${playlistId}`;
+            let playlistTracks: SpotifyTrack[] | null = await kv.get(playlistCacheKey);
+            if (!playlistTracks) {
+                const spotifyToken = await getSpotifyToken();
+                playlistTracks = await getPlaylistTracks(playlistId, spotifyToken);
+                await kv.set(playlistCacheKey, playlistTracks, { ex: 300 });
+            }
 
-            const fetchPromises = lastfmUsernames.map(username => {
-                if (!username) return null;
-                const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopartists&user=${username}&period=1month&api_key=${apiKey}&format=json&limit=50`;
-                return fetch(apiUrl).then(res => res.json());
-            }).filter(Boolean);
+            // 3. Find matches
+            const matchingTracks = playlistTracks!.filter(track => 
+                track.artists.some(artist => topArtistSet.has(artist.name.toLowerCase()))
+            );
 
-            const results = await Promise.allSettled(fetchPromises);
-            const artistScrobbles = new Map<string, AggregatedArtist>();
-
-            for (const result of results) {
-                if (result.status === 'fulfilled' && result.value.topartists) {
-                    const artists: LastFmArtist[] = result.value.topartists.artist;
-                    for (const artist of artists) {
-                        const key = artist.name.toLowerCase();
-                        const playCount = parseInt(artist.playcount, 10);
-                        if (artistScrobbles.has(key)) {
-                            artistScrobbles.get(key)!.playcount += playCount;
-                        } else {
-                            artistScrobbles.set(key, { name: artist.name, playcount: playCount });
-                        }
-                    }
+            // 4. Format and send response
+            let content = '';
+            if (matchingTracks.length === 0) {
+                content = "Found no tracks in the playlist from the server's top 30 most listened to artists this month.";
+            } else {
+                content = `Found **${matchingTracks.length}** tracks from the server's top artists in the playlist:\n\n`;
+                const trackList = matchingTracks
+                    .map((track, i) => {
+                        const artistNames = track.artists.map(a => a.name).join(', ');
+                        return `${i + 1}. **${track.name}** by ${artistNames}`;
+                    })
+                    .join('\n');
+                
+                // Truncate if the message is too long for Discord
+                if ((content.length + trackList.length) > 2000) {
+                    content += trackList.substring(0, 1900) + "\n...and more.";
+                } else {
+                    content += trackList;
                 }
             }
 
-            const sortedArtists = Array.from(artistScrobbles.values()).sort((a, b) => b.playcount - a.playcount);
-            
-            // --- DEBUG ---: Log the server's top artists.
-            console.log("Server Top Artists (Aggregated):", sortedArtists.slice(0, 30));
-            
-            const artistNameArray = sortedArtists.slice(0, 30).map(artist => artist.name.toLowerCase());
-            top30ArtistNames = new Set(artistNameArray);
-
-            // --- CACHING ---: Store the result in KV for 1 hour (3600 seconds).
-            await kv.set(serverArtistsCacheKey, Array.from(top30ArtistNames), { ex: 3600 });
-        } else {
-            console.log("CACHE HIT: Using cached Last.fm server artists.");
-            // Convert the array from KV back into a Set
-            top30ArtistNames = new Set(top30ArtistNames as unknown as string[]);
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content }),
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
-        
-        if (top30ArtistNames.size === 0) {
-            throw new Error("Could not fetch any artist data for the server's registered users.");
-        }
-
-
-        // --- Part 2: Get Spotify Playlist Tracks (with Caching) ---
-        const playlistCacheKey = `league:playlist:${playlistId}`;
-        let playlistTracks: SpotifyTrack[] | null = await kv.get(playlistCacheKey);
-        
-        if (!playlistTracks) {
-            console.log("CACHE MISS: Fetching fresh Spotify playlist tracks.");
-            const spotifyToken = await getSpotifyToken(); // Assuming getSpotifyToken is also cached or fast
-            playlistTracks = await getPlaylistTracks(playlistId, spotifyToken);
-            
-            // --- DEBUG ---: Log the tracks and artists from the playlist.
-            console.log("Spotify Playlist Tracks:", playlistTracks);
-
-            // --- CACHING ---: Store the result in KV for 5 minutes (300 seconds).
-            await kv.set(playlistCacheKey, playlistTracks, { ex: 300 });
-        } else {
-            console.log("CACHE HIT: Using cached Spotify playlist tracks.");
-        }
-
-
-        // --- Part 3: Find Matching Tracks ---
-        const matchingTracks: string[] = [];
-        for (const track of playlistTracks!) {
-            const hasMatchingArtist = track.artists.some(artist => top30ArtistNames!.has(artist.name.toLowerCase()));
-            if (hasMatchingArtist) {
-                const artistNames = track.artists.map(a => a.name).join(', ');
-                matchingTracks.push(`**${track.name}** by ${artistNames}`);
-            }
-        }
-
-        // --- Part 4: Format and Send Response ---
-        let content = '';
-        if (matchingTracks.length === 0) {
-            content = "Found no tracks in the playlist from the server's top 30 most listened to artists this month.";
-        } else {
-            content = `Found **${matchingTracks.length}** tracks from the server's top artists in the playlist:\n\n`;
-            let trackList = matchingTracks.map((track, i) => `${i + 1}. ${track}`).join('\n');
-
-            if (content.length + trackList.length > 2000) {
-                const remaining = matchingTracks.length - 25;
-                trackList = matchingTracks.slice(0, 25).map((track, i) => `${i + 1}. ${track}`).join('\n');
-                trackList += `\n...and ${remaining} more.`;
-            }
-            content += trackList;
-        }
-
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ content }),
-            headers: { 'Content-Type': 'application/json' },
-        });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {

@@ -172,19 +172,57 @@ export async function handleLeague(interaction: APIChatInputApplicationCommandIn
         const subcommand = (interaction.data.options?.[0] as any); // The subcommand object
 
         // --- Subcommand Router ---
-        if (subcommand.name === 'banned') {
+ if (subcommand.name === 'banned') {
             const topArtists = await getServerTopArtists();
 
             if (topArtists.length === 0) {
                 throw new Error("Could not find any top artists for the server.");
             }
 
-            const artistList = topArtists.map(artist => `- ${artist}`).join('\n');
-            const content = `**The following artists are banned for this league!**:\n\n${artistList}`;
+            // --- EMBED LOGIC START ---
 
+            // 1. Split the artist list into two halves
+            const firstHalf = topArtists.slice(0, 15);
+            const secondHalf = topArtists.slice(15, 30);
+
+            // 2. Format each half into a numbered string
+            // The `\u200b` is a zero-width space to prevent an empty field error if the list is empty
+            const firstFieldValue = firstHalf.map((artist, index) => `${index + 1}. ${artist}`).join('\n') || '\u200b';
+            const secondFieldValue = secondHalf.map((artist, index) => `${index + 16}. ${artist}`).join('\n') || '\u200b';
+
+            // 3. Construct the embed object
+            const embed = {
+                title: "🚫 Server League Banned Artists",
+                description: "The following artists have the highest scrobbles on the server this month and are banned from the league.",
+                color: 0xED4245, // Discord's red color
+                fields: [
+                    {
+                        name: "Artists 1-15",
+                        value: firstFieldValue,
+                        inline: true // This makes the fields appear side-by-side
+                    },
+                    {
+                        name: "Artists 16-30",
+                        value: secondFieldValue,
+                        inline: true
+                    }
+                ],
+                footer: {
+                    text: `Based on plays from the last 30 days.`
+                }
+            };
+
+            // Remove the second field if there are 15 or fewer artists
+            if (secondHalf.length === 0) {
+                embed.fields.pop();
+                 // If there's only one column, it looks better not being inline
+                embed.fields[0].inline = false;
+            }
+
+            // 4. Send the embed in the response
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH',
-                body: JSON.stringify({ content }),
+                body: JSON.stringify({ embeds: [embed] }),
                 headers: { 'Content-Type': 'application/json' },
             });
 

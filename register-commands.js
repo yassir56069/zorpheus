@@ -64,6 +64,12 @@ const commands = [
         type: 3, // Type 3 corresponds to STRING
         required: false,
       },
+      {
+        name: 'hq_only',
+        description: 'If true, searches all sources to find the highest quality cover.',
+        type: 5, // Type 5 corresponds to BOOLEAN
+        required: false,
+      },
     ],
   },
     {

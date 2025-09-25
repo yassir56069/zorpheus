@@ -3,16 +3,12 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
+    APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 
-// --- Start of re-used helper functions from cover.ts ---
+// --- Helper Functions ---
 
-/**
- * Fetches an image from a URL and returns it as a Buffer.
- * @param url The URL of the image to fetch.
- * @returns A Promise that resolves with the image Buffer.
- */
 async function fetchImageBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
     if (!response.ok) {
@@ -28,11 +24,12 @@ function normalizeString(str: string): string {
 
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) return false;
-    if (url === 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') return false;
-
+    if (url === 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') {
+        console.log('LastFM returned a placeholder image.');
+        return false;
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-
     try {
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
         clearTimeout(timeoutId);
@@ -43,23 +40,35 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     }
 }
 
+async function findCoverOnItunes(artist: string, album: string): Promise<string | null> {
+    try {
+        const searchTerm = `${artist} ${album}`;
+        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
+        const response = await fetch(itunesUrl);
+        const data = await response.json();
+        if (data.resultCount > 0) {
+            const bestMatch = data.results.find((r: { collectionName: string; }) => normalizeString(r.collectionName).toLowerCase() === normalizeString(album).toLowerCase()) || data.results[0];
+            return bestMatch.artworkUrl100.replace('100x100', '1000x1000');
+        }
+    } catch (error) {
+        console.error("Error fetching from iTunes:", error);
+    }
+    return null;
+}
+
 async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) return null;
-
     try {
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
         const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
         if (!mbResponse.ok) return null;
-
         const mbData = await mbResponse.json();
         const releaseId = mbData.releases?.[0]?.id;
         if (!releaseId) return null;
-
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
-        const caResponse = await fetch(coverArtUrl);
+        const caResponse = await fetch(coverArtUrl, { headers: { 'Accept': 'application/json' } });
         if (!caResponse.ok) return null;
-
         const caData = await caResponse.json();
         const frontImage = caData.images?.find((img: { front: boolean }) => img.front);
         return frontImage?.image || null;
@@ -69,30 +78,51 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
     }
 }
 
-async function findCoverArt(artist: string, album: string): Promise<string | null> {
-    try {
-        const searchTerm = `${artist} ${album}`;
-        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
-        const response = await fetch(itunesUrl);
-        const data = await response.json();
-
-        if (data.resultCount > 0) {
-            const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
-            return bestMatch.artworkUrl100.replace('100x100', '1000x1000');
-        }
-    } catch (error) {
-        console.error("Error fetching from iTunes:", error);
-    }
-
+async function findCoverArtSequentially(artist: string, album: string): Promise<string | null> {
+    const itunesArt = await findCoverOnItunes(artist, album);
+    if (await isValidImageUrl(itunesArt)) return itunesArt;
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
-    if (musicBrainzArt) return musicBrainzArt;
-
+    if (await isValidImageUrl(musicBrainzArt)) return musicBrainzArt;
     return null;
 }
 
-// --- End of re-used helper functions ---
+async function findAllCoverArtSources(artist: string, album: string, lastfmUrl: string | null): Promise<(string | null)[]> {
+    const sourcePromises = [
+        Promise.resolve(lastfmUrl),
+        findCoverOnItunes(artist, album),
+        findCoverOnMusicBrainz(artist, album),
+    ];
+    const results = await Promise.all(sourcePromises);
+    return results.filter(url => url);
+}
 
-async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandInteraction, initialSearchQuery: string) {
+function getImageQualityScore(url: string | null): number {
+    if (!url) return 0;
+    if (url.includes('coverartarchive.org')) return 5000;
+    const match = url.match(/(\d+)x\d+/);
+    if (match && match[1]) return parseInt(match[1], 10);
+    if (url.includes('/i/u/')) {
+        if (url.includes('300x300')) return 300;
+        if (url.includes('174s')) return 174;
+    }
+    return 100;
+}
+
+async function getBestImageUrl(urls: (string | null)[]): Promise<string | null> {
+    const validUrls = [];
+    for (const url of urls) {
+        if (await isValidImageUrl(url)) {
+            validUrls.push(url!);
+        }
+    }
+    if (validUrls.length === 0) return null;
+    validUrls.sort((a, b) => getImageQualityScore(b) - getImageQualityScore(a));
+    return validUrls[0];
+}
+
+// --- Command Handlers ---
+
+async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandInteraction, initialSearchQuery: string, hqOnly: boolean) {
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST', body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }), headers: { 'Content-Type': 'application/json' },
     });
@@ -111,12 +141,19 @@ async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandIn
             if (data.error || !data.results?.albummatches?.album?.[0]) continue;
 
             const album = data.results.albummatches.album[0];
-            const artUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
+            const artist = album.artist;
+            const albumName = album.name;
+            const lastfmAlbumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
 
-            if (await isValidImageUrl(artUrl)) {
-                finalAlbumArtUrl = artUrl;
+            if (hqOnly) {
+                const allUrls = await findAllCoverArtSources(artist, albumName, lastfmAlbumArtUrl);
+                finalAlbumArtUrl = await getBestImageUrl(allUrls);
             } else {
-                finalAlbumArtUrl = await findCoverArt(album.artist, album.name);
+                if (await isValidImageUrl(lastfmAlbumArtUrl)) {
+                    finalAlbumArtUrl = lastfmAlbumArtUrl;
+                } else {
+                    finalAlbumArtUrl = await findCoverArtSequentially(artist, albumName);
+                }
             }
 
             if (finalAlbumArtUrl) break;
@@ -145,7 +182,7 @@ async function handleAlbumSearchRc(interaction: APIChatInputApplicationCommandIn
     }
 }
 
-async function handleUserScrobbleRc(interaction: APIChatInputApplicationCommandInteraction, lastfmUsername: string) {
+async function handleUserScrobbleRc(interaction: APIChatInputApplicationCommandInteraction, lastfmUsername: string, hqOnly: boolean) {
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST', body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }), headers: { 'Content-Type': 'application/json' },
     });
@@ -165,22 +202,31 @@ async function handleUserScrobbleRc(interaction: APIChatInputApplicationCommandI
         }
         
         const track = data.recenttracks.track[0];
-        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
+        const artist = track.artist['#text'];
+        const albumName = track.album['#text'];
+        const lastfmAlbumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'];
+        let finalAlbumArtUrl: string | null = null;
 
-        if (!await isValidImageUrl(albumArtUrl)) {
-            albumArtUrl = await findCoverArt(track.artist['#text'], track.album['#text']);
+        if (hqOnly) {
+            const allUrls = await findAllCoverArtSources(artist, albumName, lastfmAlbumArtUrl);
+            finalAlbumArtUrl = await getBestImageUrl(allUrls);
+        } else {
+            if (await isValidImageUrl(lastfmAlbumArtUrl)) {
+                finalAlbumArtUrl = lastfmAlbumArtUrl;
+            } else {
+                finalAlbumArtUrl = await findCoverArtSequentially(artist, albumName);
+            }
         }
 
-        if (!albumArtUrl) {
+        if (!finalAlbumArtUrl) {
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH', body: JSON.stringify({ content: `Could not find album art for **${track.name}** by **${track.artist['#text']}**.` }), headers: { 'Content-Type': 'application/json' },
+                method: 'PATCH', body: JSON.stringify({ content: `Could not find album art for **${track.name}** by **${artist}**.` }), headers: { 'Content-Type': 'application/json' },
             });
             return;
         }
 
-        albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
-        const imageBuffer = await fetchImageBuffer(albumArtUrl);
-
+        finalAlbumArtUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
+        const imageBuffer = await fetchImageBuffer(finalAlbumArtUrl);
         const formData = new FormData();
         formData.append('file', new Blob([imageBuffer]), 'cover.png');
 
@@ -196,14 +242,15 @@ async function handleUserScrobbleRc(interaction: APIChatInputApplicationCommandI
 }
 
 export async function handleRc(interaction: APIChatInputApplicationCommandInteraction) {
-    const options = interaction.data.options;
+    const options = interaction.data.options as (APIApplicationCommandInteractionDataStringOption | APIApplicationCommandInteractionDataBooleanOption)[] | undefined;
+    
+    const searchOption = options?.find(opt => opt.name === 'search') as APIApplicationCommandInteractionDataStringOption | undefined;
+    const hqOnlyOption = options?.find(opt => opt.name === 'hq_only') as APIApplicationCommandInteractionDataBooleanOption | undefined;
+    const hqOnly = hqOnlyOption?.value ?? false;
 
-    if (options && options.length > 0) {
-        const searchOption = options[0] as APIApplicationCommandInteractionDataStringOption;
-        if (searchOption.name === 'search') {
-            await handleAlbumSearchRc(interaction, searchOption.value);
-            return new NextResponse(null, { status: 204 });
-        }
+    if (searchOption?.value) {
+        await handleAlbumSearchRc(interaction, searchOption.value, hqOnly);
+        return new NextResponse(null, { status: 204 });
     }
 
     const discordUserId = interaction.member!.user.id;
@@ -219,6 +266,6 @@ export async function handleRc(interaction: APIChatInputApplicationCommandIntera
         });
     }
     
-    await handleUserScrobbleRc(interaction, lastfmUsername);
+    await handleUserScrobbleRc(interaction, lastfmUsername, hqOnly);
     return new NextResponse(null, { status: 204 });
 }

@@ -12,7 +12,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
 import { handleCover } from '@/app/commands/cover';
-import { handleFm } from '@/app/commands/fm';
+import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
 
 // development 
@@ -67,11 +67,20 @@ export async function POST(req: Request) {
     }
 
     if (interaction.type === InteractionType.MessageComponent) {
-        // Right now, only the countdown command has buttons, so we can
-        // directly pass the interaction to its handler.
-        // If you add buttons to other commands, you'll need to add logic here
-        // to check the `custom_id` and route to the correct handler.
-        return handleCountdownInteraction(interaction as APIMessageComponentButtonInteraction);
+        const componentInteraction = interaction as APIMessageComponentButtonInteraction;
+        const customId = componentInteraction.data.custom_id;
+
+        // --- NEW: Route fm button interactions ---
+        if (customId.startsWith('resync_fm_')) {
+            return handleFmResync(componentInteraction);
+        }
+
+        // Existing handler for countdown buttons
+        if (customId.startsWith('countdown_')) { // Example prefix for your countdown buttons
+             return handleCountdownInteraction(componentInteraction);
+        }
+
+        return new NextResponse('Unhandled component interaction', { status: 400 });
     }
 
     return new NextResponse('Unhandled interaction type', { status: 404 });

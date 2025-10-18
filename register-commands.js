@@ -16,7 +16,7 @@ const commands = [
   },
   {
     name: 'fm',
-    description: '[in beta] displays your current scrobbled track',
+    description: 'Displays your current scrobbled track',
   },
     {
     name: 'register',

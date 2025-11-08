@@ -6,81 +6,114 @@ import {
     APIApplicationCommandInteractionDataStringOption,
     APIMessageComponentButtonInteraction,
     ButtonStyle,
-    ComponentType,
-    APIActionRowComponent,
-    APIButtonComponent,
-    MessageFlags,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
-// --- HELPER FUNCTIONS (These can remain unchanged) ---
+// --- HELPER FUNCTIONS (These remain unchanged) ---
 
+/**
+ * Checks if an image URL is valid and responsive within a given timeout.
+ * @param url The URL of the image to check.
+ * @param timeout The timeout in milliseconds.
+ * @returns True if the image is valid and responds in time, false otherwise.
+ */
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) {
         return false;
     }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+
     try {
+        // We use a 'HEAD' request because we only care if the image exists,
+        // not about its content. This is much faster than a 'GET'.
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+        
+        // Clear the timeout if the request completes successfully
         clearTimeout(timeoutId);
+
+        // response.ok is true for status codes 200-299
         return response.ok;
     } catch (error) {
         clearTimeout(timeoutId);
         if (error instanceof Error && error.name === 'AbortError') {
+            // This happens when our timeout is triggered
             console.log(`Image URL timed out: ${url}`);
         } else {
+            // This can happen for other network reasons (CORS, DNS errors, etc.)
             console.error(`Error fetching image URL head: ${url}`, error);
         }
         return false;
     }
 }
-
 async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {  
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) {
         console.log("MusicBrainz User-Agent not set, skipping this fallback.");
         return null;
     }
+
     try {
+        // Step A: Search MusicBrainz for the release to get its ID (MBID)
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
+        
         const mbResponse = await fetch(musicBrainzUrl, {
             headers: { 'User-Agent': userAgent }
         });
+
         if (!mbResponse.ok) {
             console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
             return null;
         }
+
         const mbData = await mbResponse.json();
-        const releaseId = mbData.releases?.[0]?.id;
+        
+        // Find the most likely match (usually the first result)
+        const release = mbData.releases?.[0];
+        const releaseId = release?.id; // This is the MBID
+
         if (!releaseId) {
             console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
             return null;
         }
+
+        // Step B: Use the release ID to get the cover art from the Cover Art Archive
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
         const caResponse = await fetch(coverArtUrl);
+        
+        // If the cover art archive returns a 404, it means no art exists for this release.
         if (!caResponse.ok) {
             return null;
         }
+        
         const caData = await caResponse.json();
+        // The API returns an array of images. We want the front cover.
         const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
+        
         if (frontImage?.image) {
             console.log("Successfully got album art from Cover Art Archive.");
+            // This URL points directly to the highest-resolution image they have.
             return frontImage.image;
         }
+
     } catch (error) {
         console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
     }
+    
     return null;
 }
-
+// This helper function remains unchanged
 async function findCoverArt(artist: string, album: string): Promise<string | null> {
+    
+    // --- Fallback 1: iTunes API ---
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
         const response = await fetch(itunesUrl);
         const data = await response.json();
+
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
@@ -90,11 +123,16 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
     }
+
+    // --- Fallback 2: MusicBrainz / Cover Art Archive ---
+    // This will only run if iTunes returned nothing.
     console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
     if (musicBrainzArt) {
         return musicBrainzArt;
     }
+
+    // If all fallbacks have failed, return null.
     console.log("All fallbacks failed.");
     return null;
 }
@@ -103,6 +141,7 @@ async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
         const vibrantSwatch = palette.Vibrant || palette.Muted || palette.LightVibrant;
+
         if (vibrantSwatch && vibrantSwatch.hex) {
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
@@ -119,9 +158,10 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
-// --- MAIN COMMAND HANDLER ---
+// --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
+    // --- Step 1 & 2 remain the same ---
     let lastfmUsername: string | null = null;
     const discordUserId = interaction.member!.user.id;
     lastfmUsername = await kv.get(discordUserId) as string | null;
@@ -138,22 +178,17 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
                 content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/fm username: <username>\`.`,
-                flags: MessageFlags.Ephemeral,
+                flags: 1 << 6,
             },
         });
     }
 
-    // --- MODIFICATION 1 ---
-    // Defer the response ephemerally. This makes the "Thinking..." message and all
-    // subsequent edits (follow-ups) visible ONLY to the person who ran the command.
+    // --- Step 3: Defer the Interaction (Slow Path) ---
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             type: InteractionResponseType.DeferredChannelMessageWithSource,
-            data: {
-                flags: MessageFlags.Ephemeral,
-            },
         }),
     });
 
@@ -236,17 +271,13 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             footer: { text: footerText, icon_url: iconUrl },
         };
 
-        // --- MODIFICATION 2 ---
-        // We add the current timestamp to the custom ID. This lets us check
-        // if the button has expired when a user clicks it.
-        const creationTimestamp = Date.now();
-        const components: APIActionRowComponent<APIButtonComponent>[] = [{
-            type: ComponentType.ActionRow,
+        const components = [{
+            type: 1, // Action Row
             components: [{
-                type: ComponentType.Button,
+                type: 2, // Button
                 style: ButtonStyle.Secondary,
                 label: 'Re-sync',
-                custom_id: `resync_fm_${interaction.member!.user.id}_${creationTimestamp}`,
+                custom_id: `resync_fm_${interaction.member!.user.id}`,
             }],
         }];
 
@@ -256,9 +287,13 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             body: JSON.stringify({ embeds: [embed], components }),
         });
 
-        // --- MODIFICATION 3 ---
-        // The problematic `setTimeout` is removed completely. The timeout logic is now
-        // handled when the button is clicked, which is compatible with Vercel.
+        setTimeout(async () => {
+            await fetch(webhookUrl, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ components: [] }),
+            });
+        }, 60000);
 
     } catch (error) {
         console.error(error);
@@ -272,57 +307,29 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     return new NextResponse(null, { status: 204 });
 };
 
-// --- BUTTON INTERACTION HANDLER ---
+// --- NEW BUTTON HANDLER ---
 
 export async function handleFmResync(interaction: APIMessageComponentButtonInteraction) {
-    const [_, __, originalUserId, creationTimestampStr] = interaction.data.custom_id.split('_');
-    const creationTimestamp = parseInt(creationTimestampStr);
-    const EXPIRATION_MS = 60 * 1000; // 60 seconds
+    const originalUserId = interaction.data.custom_id.split('_')[2];
 
-    // Security Check: Ensure the person clicking is the one who ran the command.
     if (interaction.member!.user.id !== originalUserId) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
                 content: "This button isn't for you!",
-                flags: MessageFlags.Ephemeral,
+                flags: 1 << 6,
             },
         });
     }
 
-    // Timeout Check: If it's been over a minute, tell the user and remove the button.
-    if (Date.now() - creationTimestamp > EXPIRATION_MS) {
-        await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: {
-                    content: "This re-sync button has expired. Please run the command again.",
-                    flags: MessageFlags.Ephemeral,
-                },
-            }),
-        });
-        
-        // Edit the original message to remove the now-expired button.
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ components: [] }),
-        });
-        
-        return new NextResponse(null, { status: 204 });
-    }
-
-    // Acknowledge the button click immediately so Discord knows we're working.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: InteractionResponseType.DeferredMessageUpdate }),
     });
 
-    // --- Re-run the core scrobble logic ---
-    const lastfmUsername = await kv.get(originalUserId) as string | null;
+    const discordUserId = interaction.member!.user.id;
+    const lastfmUsername = await kv.get(discordUserId) as string | null;
     const apiKey = process.env.LASTFM_API_KEY;
     const webhookUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
 
@@ -410,7 +417,6 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
             footer: { text: footerText, icon_url: iconUrl },
         };
 
-        // Update the original message with the new embed. The button remains.
         await fetch(webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },

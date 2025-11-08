@@ -39,29 +39,21 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-        // We use a 'HEAD' request because we only care if the image exists,
-        // not about its content. This is much faster than a 'GET'.
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
-        
-        // Clear the timeout if the request completes successfully
         clearTimeout(timeoutId);
-
-        // response.ok is true for status codes 200-299
         return response.ok;
     } catch (error) {
         clearTimeout(timeoutId);
         if (error instanceof Error && error.name === 'AbortError') {
-            // This happens when our timeout is triggered
             console.log(`Image URL timed out: ${url}`);
         } else {
-            // This can happen for other network reasons (CORS, DNS errors, etc.)
             console.error(`Error fetching image URL head: ${url}`, error);
         }
         return false;
     }
 }
 
-async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {  
+async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) {
         console.log("MusicBrainz User-Agent not set, skipping this fallback.");
@@ -69,12 +61,8 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
     }
 
     try {
-        // Step A: Search MusicBrainz for the release to get its ID (MBID)
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
-        
-        const mbResponse = await fetch(musicBrainzUrl, {
-            headers: { 'User-Agent': userAgent }
-        });
+        const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
 
         if (!mbResponse.ok) {
             console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
@@ -82,45 +70,42 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
         }
 
         const mbData = await mbResponse.json();
-        
-        // Find the most likely match (usually the first result)
         const release = mbData.releases?.[0];
-        const releaseId = release?.id; // This is the MBID
+        const releaseId = release?.id;
 
         if (!releaseId) {
             console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
             return null;
         }
 
-        // Step B: Use the release ID to get the cover art from the Cover Art Archive
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
         const caResponse = await fetch(coverArtUrl);
-        
-        // If the cover art archive returns a 404, it means no art exists for this release.
-        if (!caResponse.ok) {
-            return null;
-        }
-        
+
+        if (!caResponse.ok) return null;
+
         const caData = await caResponse.json();
-        // The API returns an array of images. We want the front cover.
         const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
-        
+
         if (frontImage?.image) {
             console.log("Successfully got album art from Cover Art Archive.");
-            // This URL points directly to the highest-resolution image they have.
             return frontImage.image;
         }
-
     } catch (error) {
         console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
     }
-    
     return null;
 }
 
-// This helper function remains unchanged
-async function findCoverArt(artist: string, album: string): Promise<string | null> {
+/**
+ * NEW: A more robust function that finds a cover from fallbacks AND validates it.
+ * This ensures we only return a URL that is confirmed to be working.
+ * @param artist The artist name.
+ * @param album The album name.
+ * @returns A validated image URL or null.
+ */
+async function findValidatedFallbackCover(artist: string, album: string): Promise<string | null> {
     console.log(`Searching fallbacks for "${album}" by "${artist}"`);
+
     // --- Fallback 1: iTunes API ---
     try {
         const searchTerm = `${artist} ${album}`;
@@ -131,42 +116,66 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
-            console.log(`Successfully got album art from iTunes. ${highResUrl}`);
-            return highResUrl;
+            
+            // Key Improvement: Validate the URL before returning it
+            if (await isValidImageUrl(highResUrl)) {
+                console.log(`Successfully found and validated album art from iTunes: ${highResUrl}`);
+                return highResUrl;
+            }
+            console.log(`iTunes URL found but failed validation: ${highResUrl}`);
         }
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
     }
 
     // --- Fallback 2: MusicBrainz / Cover Art Archive ---
-    // This will only run if iTunes returned nothing.
-    console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
+    console.log("iTunes failed or its URL was invalid, trying MusicBrainz...");
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
     if (musicBrainzArt) {
-        return musicBrainzArt;
+        // Key Improvement: Validate the MusicBrainz URL as well
+        if (await isValidImageUrl(musicBrainzArt)) {
+            console.log(`Successfully found and validated album art from MusicBrainz: ${musicBrainzArt}`);
+            return musicBrainzArt;
+        }
+        console.log(`MusicBrainz URL found but failed validation: ${musicBrainzArt}`);
     }
 
-    // If all fallbacks have failed, return null.
     console.log(`All fallbacks failed for "${album}" by "${artist}".`);
     return null;
 }
 
+
+/**
+ * NEW: Centralized logic to get a verified album art URL.
+ * It tries the primary URL first, and if that fails, it checks all fallbacks.
+ * @param primaryUrl The initial URL from Last.fm.
+ * @param artist The artist name for fallbacks.
+ * @param album The album name for fallbacks.
+ * @returns A promise that resolves to a verified URL or null.
+ */
+async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, artist: string, album: string): Promise<string | null> {
+    // Step 1: Check if the primary URL from Last.fm is valid.
+    if (await isValidImageUrl(primaryUrl)) {
+        console.log("Primary Last.fm URL is valid.");
+        return primaryUrl!;
+    }
+
+    // Step 2: If not, try all validated fallback sources.
+    console.log("Primary URL is invalid or a placeholder. Trying fallbacks...");
+    return await findValidatedFallbackCover(artist, album);
+}
+
+
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
-        // We'll prioritize the "Vibrant" swatch, but you can choose others
-        // like Muted, DarkVibrant, etc.
         const vibrantSwatch = palette.Vibrant || palette.Muted || palette.LightVibrant;
-
-        if (vibrantSwatch && vibrantSwatch.hex) {
-            // Discord requires the color as a decimal (integer), not a hex string.
-            // We parse the hex string (e.g., "#RRGGBB") into an integer.
+        if (vibrantSwatch?.hex) {
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
     } catch (error) {
         console.error("Error getting dominant color:", error);
     }
-    // Return null if we fail, so we can use a fallback color
     return null;
 }
 
@@ -174,140 +183,102 @@ const getBaseUrl = () => {
     if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
         return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     }
-    // Use the public URL from your .env file for local dev or previews
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
+// This function sends the final message to Discord.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function sendFinalResponse(interaction: APIChatInputApplicationCommandInteraction, content: any) {
+    await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+        method: 'PATCH',
+        body: JSON.stringify(content),
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
 async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, initialSearchQuery: string) {
-    // Immediately defer the reply
+    // Defer the reply immediately. This is correct.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
-        body: JSON.stringify({
-            type: InteractionResponseType.DeferredChannelMessageWithSource,
-        }),
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
+        headers: { 'Content-Type': 'application/json' },
     });
 
     const apiKey = process.env.LASTFM_API_KEY;
-    
-    let finalAlbumArtUrl: string | null = null;
-    let finalArtist: string | null = null;
-    let finalAlbumName: string | null = null;
-    
     const searchQueries = [initialSearchQuery];
     const normalizedQuery = normalizeString(initialSearchQuery);
-
-    // Only add the normalized query if it's different from the original
     if (normalizedQuery !== initialSearchQuery) {
         searchQueries.push(normalizedQuery);
     }
 
     try {
-        // Loop through search queries (original, then normalized if different)
+        let finalAlbumArtUrl: string | null = null;
+        let finalArtist: string | null = null;
+        let finalAlbumName: string | null = null;
+
         for (const query of searchQueries) {
             console.log(`--- Searching for: "${query}" ---`);
-            
-            // Step 1: Try Last.fm first
             const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&album=${encodeURIComponent(query)}&api_key=${apiKey}&format=json&limit=1`;
             const response = await fetch(apiUrl);
             const data = await response.json();
 
-            // If Last.fm gives no result, skip to the next query (normalized)
-            if (data.error || !data.results?.albummatches?.album?.[0]) {
+            const albumData = data.results?.albummatches?.album?.[0];
+            if (!albumData) {
                 console.log(`Last.fm found no results for "${query}".`);
-                continue; 
-            }
-            
-            const album = data.results.albummatches.album[0];
-            const artist = album.artist;
-            const albumName = album.name;
-
-            const albumArtUrl = album.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
-                            || album.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
-                            || album.image[album.image.length - 1]?.['#text'];
-            
-            // Step 2: Check if the Last.fm URL is valid
-            if (await isValidImageUrl(albumArtUrl)) {
-                console.log(`Found valid cover on Last.fm for "${query}".`);
-                finalAlbumArtUrl = albumArtUrl;
-            } else {
-                // Step 3: If Last.fm URL is bad, try all other fallbacks (iTunes, MusicBrainz)
-                console.log(`Last.fm URL for "${query}" is invalid or a placeholder. Trying fallbacks...`);
-                finalAlbumArtUrl = await findCoverArt(artist, albumName);
+                continue;
             }
 
-            // If we found a cover from any source, store the details and stop searching.
-            if (finalAlbumArtUrl) {
+            const artist = albumData.artist;
+            const albumName = albumData.name;
+            const primaryUrl = albumData.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || albumData.image[albumData.image.length - 1]?.['#text'];
+
+            // Use the new centralized function to get a verified cover.
+            const verifiedUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
+
+            if (verifiedUrl) {
+                finalAlbumArtUrl = verifiedUrl;
                 finalArtist = artist;
                 finalAlbumName = albumName;
-                break;
+                break; // Found a valid cover, no need to try other queries.
             }
         }
 
-        // --- Process the final result ---
         if (finalAlbumArtUrl && finalArtist && finalAlbumName) {
             const dominantColor = await getDominantColor(finalAlbumArtUrl);
             const baseUrl = getBaseUrl();
-            let iconUrl = `${baseUrl}/api/recolor-icon?color=d51007`;
-            if (dominantColor) {
-                const hexColor = dominantColor.toString(16).padStart(6, '0');
-                iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
-            }
+            const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
+            const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
             
-            finalAlbumArtUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
-
             const embed = {
                 title: finalAlbumName,
                 description: `-# by **${finalArtist}**`,
                 color: dominantColor || 0xd51007,
-                image: { url: finalAlbumArtUrl },
+                image: { url: finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/") },
                 footer: {
                     text: `Searched by: ${interaction.member!.user.username}`,
                     icon_url: iconUrl
                 }
             };
-            
-            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                body: JSON.stringify({ embeds: [embed] }),
-                headers: { 'Content-Type': 'application/json' },
-            });
+            await sendFinalResponse(interaction, { embeds: [embed] });
         } else {
-            // All attempts (original and normalized) have failed.
             let content = `Could not find album art for \`${initialSearchQuery}\`.`;
             if (searchQueries.length > 1) {
-                content = `Could not find album art for \`${initialSearchQuery}\` (also tried \`${normalizedQuery}\`).`;
+                content += ` (also tried \`${normalizedQuery}\`).`;
             }
-
-            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                body: JSON.stringify({ content }),
-                headers: { 'Content-Type': 'application/json' },
-            });
+            await sendFinalResponse(interaction, { content });
         }
-
     } catch (error) {
         console.error(error);
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ content: 'An error occurred while processing your request.' }),
-            headers: { 'Content-Type': 'application/json' },
-        });
+        await sendFinalResponse(interaction, { content: 'An error occurred while processing your request.' });
     }
 }
 
 async function handleUserScrobble(interaction: APIChatInputApplicationCommandInteraction, lastfmUsername: string) {
-    // Immediately defer the reply
+    // Defer the reply immediately.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
-        body: JSON.stringify({
-            type: InteractionResponseType.DeferredChannelMessageWithSource,
-        }),
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
+        headers: { 'Content-Type': 'application/json' },
     });
 
     const apiKey = process.env.LASTFM_API_KEY;
@@ -317,14 +288,8 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const response = await fetch(apiUrl);
         const data = await response.json();
 
-        if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
-            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` }),
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
+        if (data.error || !data.recenttracks?.track.length) {
+            await sendFinalResponse(interaction, { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` });
             return;
         }
         
@@ -332,99 +297,61 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
-        let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
-        || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
-        || track.image[track.image.length - 1]?.['#text'];
-        
-        const isLastFmUrlValid = await isValidImageUrl(albumArtUrl);
+        const primaryUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
-        if (!isLastFmUrlValid) {
-            console.log('Last.fm URL for user scrobble is invalid or timed out. Trying fallback...');
-            albumArtUrl = await findCoverArt(artist, albumName);
-        }
+        // Use the same reliable function to get the cover.
+        const albumArtUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
 
         if (!albumArtUrl) {
-            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
+            await sendFinalResponse(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
             return;
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
-        let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';
-        if (dominantColor) {
-            const hexColor = dominantColor.toString(16).padStart(6, '0');
-            iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
-        }
+        const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
+        const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
         
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
 
-        albumArtUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
-        
         const embed = {
             title: albumName,
             description: `-# by **${artist}**`,
             color: dominantColor || 0xd51007,
-            image: { url: albumArtUrl },
-            footer: {
-                text: footerText,
-                icon_url: iconUrl
-            }
+            image: { url: albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/") },
+            footer: { text: footerText, icon_url: iconUrl }
         };
 
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ embeds: [embed] }),
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-
+        await sendFinalResponse(interaction, { embeds: [embed] });
     } catch (error) {
         console.error(error);
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ content: 'An error occurred while fetching data from Last.fm.' }),
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
+        await sendFinalResponse(interaction, { content: 'An error occurred while fetching data from Last.fm.' });
     }
 }
 
+
 export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
-    const options = interaction.data.options;
+    const searchOption = interaction.data.options?.[0] as APIApplicationCommandInteractionDataStringOption;
 
-    // --- Search Mode ---
-    if (options && options.length > 0) {
-        const searchOption = options[0] as APIApplicationCommandInteractionDataStringOption;
-        if (searchOption.name === 'search') {
-            await handleAlbumSearch(interaction, searchOption.value);
-            return new NextResponse(null, { status: 204 }); // We've handled the response, so just return a success status
+    if (searchOption?.name === 'search') {
+        await handleAlbumSearch(interaction, searchOption.value);
+    } else {
+        const discordUserId = interaction.member!.user.id;
+        const lastfmUsername = await kv.get(discordUserId) as string | null;
+
+        if (!lastfmUsername) {
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: {
+                    content: `You must register your Last.fm username with \`/register\` first. Or, use \`/cover search:<album name>\` to find an album.`,
+                    flags: 1 << 6, // Ephemeral message
+                },
+            });
         }
-    }
-
-    // --- User Mode (Default) ---
-    const discordUserId = interaction.member!.user.id;
-    const lastfmUsername = await kv.get(discordUserId) as string | null;
-
-    if (!lastfmUsername) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: {
-                content: `To see your last played track, you must register your Last.fm username with the \`/register\` command first. Or, use the \`/cover search:<album name>\` option to find an album.`,
-                flags: 1 << 6, // Ephemeral message
-            },
-        });
+        await handleUserScrobble(interaction, lastfmUsername);
     }
     
-    await handleUserScrobble(interaction, lastfmUsername);
+    // We have handled the response by deferring and then patching, so we return 204.
     return new NextResponse(null, { status: 204 });
 }

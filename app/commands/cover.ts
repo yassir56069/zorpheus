@@ -4,6 +4,7 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
+    APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
@@ -280,6 +281,11 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
         headers: { 'Content-Type': 'application/json' },
     });
+    
+    // --- NEW: Read options ---
+    const options = interaction.data.options ?? [];
+    const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
+    const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value === false ? false : true;
 
     const apiKey = process.env.LASTFM_API_KEY;
     const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
@@ -294,9 +300,16 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         }
         
         const track = data.recenttracks.track[0];
-        const artist = track.artist['#text'];
+        let artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
+
+        // --- NEW: Apply YouTube Scrobble Fix ---
+        if (applyYoutubeScrobbleFix && artist.endsWith(' - Topic')) {
+            artist = artist.replace(' - Topic', '').trim();
+            console.log(`Applied YouTube scrobble fix. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
+        }
+
         const primaryUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
         // Use the same reliable function to get the cover.
@@ -332,9 +345,10 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
 
 
 export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
-    const searchOption = interaction.data.options?.[0] as APIApplicationCommandInteractionDataStringOption;
+    const options = interaction.data.options ?? [];
+    const searchOption = options.find(opt => opt.name === 'search') as APIApplicationCommandInteractionDataStringOption | undefined;
 
-    if (searchOption?.name === 'search') {
+    if (searchOption) {
         await handleAlbumSearch(interaction, searchOption.value);
     } else {
         const discordUserId = interaction.member!.user.id;

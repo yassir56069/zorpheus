@@ -6,6 +6,7 @@ import {
     APIApplicationCommandInteractionDataStringOption,
     APIMessageComponentButtonInteraction,
     ButtonStyle,
+    APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
@@ -161,16 +162,22 @@ const getBaseUrl = () => {
 // --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
-    // --- Step 1 & 2 remain the same ---
+    // --- Step 1 & 2: Get User and Options ---
+    const options = interaction.data.options ?? [];
+    const usernameOption = options.find(opt => opt.name === 'username') as APIApplicationCommandInteractionDataStringOption | undefined;
+    const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
+
+    // Determine if the YouTube scrobble fix should be applied. Default to true.
+    const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value === false ? false : true;
+
     let lastfmUsername: string | null = null;
     const discordUserId = interaction.member!.user.id;
-    lastfmUsername = await kv.get(discordUserId) as string | null;
-
-    if (!lastfmUsername){
-        if (interaction.data.options && interaction.data.options.length > 0) {
-            const usernameOption = interaction.data.options[0] as APIApplicationCommandInteractionDataStringOption;
-            lastfmUsername = usernameOption.value;
-        } 
+    
+    // Prioritize username from command option over the registered one
+    if (usernameOption) {
+        lastfmUsername = usernameOption.value;
+    } else {
+        lastfmUsername = await kv.get(discordUserId) as string | null;
     }
 
     if (!lastfmUsername) {
@@ -210,9 +217,16 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         }
 
         const track = data.recenttracks.track[0];
-        const artist = track.artist['#text'];
+        let artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
+        
+        // --- NEW: Apply YouTube Scrobble Fix ---
+        if (applyYoutubeScrobbleFix && artist.endsWith(' - Topic')) {
+            artist = artist.replace(' - Topic', '').trim();
+            console.log(`Applied YouTube scrobble fix. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
+        }
+
         let formattedDuration = "";
         try {
             const trackInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&format=json`;
@@ -357,9 +371,16 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
         }
 
         const track = data.recenttracks.track[0];
-        const artist = track.artist['#text'];
+        let artist = track.artist['#text'];
         const trackName = track.name;
         const albumName = track.album['#text'];
+
+        // --- NEW: Unconditionally apply YouTube Scrobble Fix on resync ---
+        if (artist.endsWith(' - Topic')) {
+            artist = artist.replace(' - Topic', '').trim();
+            console.log(`Applied YouTube scrobble fix on resync. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
+        }
+
         let formattedDuration = "";
         try {
             const trackInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&format=json`;

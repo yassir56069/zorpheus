@@ -16,7 +16,21 @@ const commands = [
   },
   {
     name: 'fm',
-    description: 'Displays your current scrobbled track',
+    description: 'Displays your current scrobbled track.',
+    options: [
+      {
+        name: 'username',
+        description: 'A specific Last.fm username to look up.',
+        type: 3, // STRING
+        required: false,
+      },
+      {
+        name: 'youtube_scrobble',
+        description: "Applies a fix for scrobbles from YouTube 'Topic' channels. (Default: On)",
+        type: 5, // BOOLEAN
+        required: false,
+      },
+    ],
   },
     {
     name: 'register',
@@ -62,6 +76,12 @@ const commands = [
         name: 'search',
         description: 'search for an album on last.fm.',
         type: 3, // Type 3 corresponds to STRING
+        required: false,
+      },
+      {
+        name: 'youtube_scrobble',
+        description: "Applies a fix for scrobbles from YouTube 'Topic' channels. (Default: On)",
+        type: 5, // BOOLEAN
         required: false,
       },
     ],

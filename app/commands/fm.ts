@@ -383,8 +383,10 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
 
         // --- ROBUST FIX: Apply YouTube Scrobble Filter on resync ---
         const originalArtist = artist;
+        console.log(originalArtist);
         const topicPattern = /\s-\sTopic/i;
         artist = artist.replace(topicPattern, '').trim();
+        console.log(artist);
         
         if (artist !== originalArtist) {
             console.log(`Applied YouTube scrobble fix on resync. Original: "${originalArtist}", Corrected: "${artist}"`);

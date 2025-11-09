@@ -147,7 +147,6 @@ const getBaseUrl = () => {
 // --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
-    console.log("--- RUNNING FM COMMAND v2 ---"); 
     const options = interaction.data.options ?? [];
     const usernameOption = options.find(opt => opt.name === 'username') as APIApplicationCommandInteractionDataStringOption | undefined;
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
@@ -202,7 +201,9 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const albumName = track.album['#text'];
         
         // Apply the cleaning function to the artist name
-        artist = cleanArtistName(artist);
+        if (applyYoutubeScrobbleFix){
+            artist = cleanArtistName(artist);
+        }
 
         let formattedDuration = "";
         try {

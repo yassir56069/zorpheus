@@ -222,7 +222,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const albumName = track.album['#text'];
         
         // --- NEW: Apply YouTube Scrobble Fix ---
-        if (applyYoutubeScrobbleFix && artist.endsWith(' - Topic')) {
+        if (applyYoutubeScrobbleFix && artist.endsWith('- Topic')) {
             artist = artist.replace(' - Topic', '').trim();
             console.log(`Applied YouTube scrobble fix. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
         }

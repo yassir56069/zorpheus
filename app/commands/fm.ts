@@ -197,9 +197,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const trackName = track.name;
         const albumName = track.album['#text'];
         
-        if (applyYoutubeScrobbleFix) {
-            artist = cleanArtistName(artist);
-        }
+        artist = cleanArtistName(artist);
 
         let formattedDuration = "";
         try {

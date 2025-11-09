@@ -222,15 +222,16 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const albumName = track.album['#text'];
         
         // --- ROBUST FIX: Apply YouTube Scrobble Filter ---
-        if (applyYoutubeScrobbleFix) {
-            const originalArtist = artist;
-            // Use a case-insensitive regex to find and replace " - Topic"
-            const topicPattern = /\s-\sTopic/i;
-            artist = artist.replace(topicPattern, '').trim();
+        const originalArtist = artist;
+        console.log(originalArtist);
+        // Use a case-insensitive regex to find and replace " - Topic"
+        const topicPattern = /\s-\sTopic/i;
+        artist = artist.replace(topicPattern, '').trim();
+        console.log(topicPattern);
+        console.log(artist);
 
-            if (artist !== originalArtist) {
-                console.log(`Applied YouTube scrobble fix. Original: "${originalArtist}", Corrected: "${artist}"`);
-            }
+        if (artist !== originalArtist) {
+            console.log(`Applied YouTube scrobble fix. Original: "${originalArtist}", Corrected: "${artist}"`);
         }
 
         let formattedDuration = "";

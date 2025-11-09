@@ -221,10 +221,16 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const trackName = track.name;
         const albumName = track.album['#text'];
         
-        // --- NEW: Apply YouTube Scrobble Fix ---
-        if (applyYoutubeScrobbleFix && (artist.endsWith(' - Topic'))) {
-            artist = artist.replace(' - Topic', '').trim();
-            console.log(`Applied YouTube scrobble fix on resync. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
+        // --- ROBUST FIX: Apply YouTube Scrobble Filter ---
+        if (applyYoutubeScrobbleFix) {
+            const originalArtist = artist;
+            // Use a case-insensitive regex to find and replace " - Topic"
+            const topicPattern = /\s-\sTopic/i;
+            artist = artist.replace(topicPattern, '').trim();
+
+            if (artist !== originalArtist) {
+                console.log(`Applied YouTube scrobble fix. Original: "${originalArtist}", Corrected: "${artist}"`);
+            }
         }
 
         let formattedDuration = "";
@@ -270,7 +276,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         }
         
         const isNowPlaying = track['@attr']?.nowplaying;
-        const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
+        const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobled by: ${lastfmUsername}`;
         const minTitleLength = 20;
         const paddingChar = '⠀';
         const paddingNeeded = Math.max(0, minTitleLength - trackName.length);
@@ -321,7 +327,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     return new NextResponse(null, { status: 204 });
 };
 
-// --- NEW BUTTON HANDLER ---
+// --- BUTTON HANDLER ---
 
 export async function handleFmResync(interaction: APIMessageComponentButtonInteraction) {
     const originalUserId = interaction.data.custom_id.split('_')[2];
@@ -375,10 +381,13 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
         const trackName = track.name;
         const albumName = track.album['#text'];
 
-        // --- NEW: Unconditionally apply YouTube Scrobble Fix on resync ---
-        if (artist.endsWith(' - Topic')) {
-            artist = artist.replace(' - Topic', '').trim();
-            console.log(`Applied YouTube scrobble fix on resync. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
+        // --- ROBUST FIX: Apply YouTube Scrobble Filter on resync ---
+        const originalArtist = artist;
+        const topicPattern = /\s-\sTopic/i;
+        artist = artist.replace(topicPattern, '').trim();
+        
+        if (artist !== originalArtist) {
+            console.log(`Applied YouTube scrobble fix on resync. Original: "${originalArtist}", Corrected: "${artist}"`);
         }
 
         let formattedDuration = "";

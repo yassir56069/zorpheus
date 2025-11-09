@@ -11,110 +11,96 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
-// --- HELPER FUNCTIONS (These remain unchanged) ---
+// --- NEW HELPER FUNCTION ---
 
 /**
- * Checks if an image URL is valid and responsive within a given timeout.
- * @param url The URL of the image to check.
- * @param timeout The timeout in milliseconds.
- * @returns True if the image is valid and responds in time, false otherwise.
+ * A robust, case-insensitive filter to remove " - Topic" from an artist string.
+ * Includes clear logging to show when it's being applied.
+ * @param artist The original artist name from Last.fm.
+ * @returns The cleaned artist name.
  */
+function cleanArtistName(artist: string): string {
+    const originalArtist = artist;
+    // Use a case-insensitive, global regex to find and replace all occurrences of " - Topic"
+    const topicPattern = /\s-\sTopic/gi;
+    const cleanedArtist = artist.replace(topicPattern, '').trim();
+
+    if (cleanedArtist !== originalArtist) {
+        console.log(`[Artist Filter] Applied. Original: "${originalArtist}", Cleaned: "${cleanedArtist}"`);
+    } else {
+        // This log helps confirm the function ran even if no change was needed.
+        console.log(`[Artist Filter] No change needed for artist: "${originalArtist}"`);
+    }
+    return cleanedArtist;
+}
+
+
+// --- EXISTING HELPER FUNCTIONS (UNCHANGED) ---
+
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) {
         return false;
     }
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-
     try {
-        // We use a 'HEAD' request because we only care if the image exists,
-        // not about its content. This is much faster than a 'GET'.
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
-        
-        // Clear the timeout if the request completes successfully
         clearTimeout(timeoutId);
-
-        // response.ok is true for status codes 200-299
         return response.ok;
     } catch (error) {
         clearTimeout(timeoutId);
         if (error instanceof Error && error.name === 'AbortError') {
-            // This happens when our timeout is triggered
             console.log(`Image URL timed out: ${url}`);
         } else {
-            // This can happen for other network reasons (CORS, DNS errors, etc.)
             console.error(`Error fetching image URL head: ${url}`, error);
         }
         return false;
     }
 }
+
 async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {  
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) {
         console.log("MusicBrainz User-Agent not set, skipping this fallback.");
         return null;
     }
-
     try {
-        // Step A: Search MusicBrainz for the release to get its ID (MBID)
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
-        
-        const mbResponse = await fetch(musicBrainzUrl, {
-            headers: { 'User-Agent': userAgent }
-        });
-
+        const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
         if (!mbResponse.ok) {
             console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
             return null;
         }
-
         const mbData = await mbResponse.json();
-        
-        // Find the most likely match (usually the first result)
         const release = mbData.releases?.[0];
-        const releaseId = release?.id; // This is the MBID
-
+        const releaseId = release?.id;
         if (!releaseId) {
             console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
             return null;
         }
-
-        // Step B: Use the release ID to get the cover art from the Cover Art Archive
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
         const caResponse = await fetch(coverArtUrl);
-        
-        // If the cover art archive returns a 404, it means no art exists for this release.
         if (!caResponse.ok) {
             return null;
         }
-        
         const caData = await caResponse.json();
-        // The API returns an array of images. We want the front cover.
         const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
-        
         if (frontImage?.image) {
             console.log("Successfully got album art from Cover Art Archive.");
-            // This URL points directly to the highest-resolution image they have.
             return frontImage.image;
         }
-
     } catch (error) {
         console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
     }
-    
     return null;
 }
-// This helper function remains unchanged
+
 async function findCoverArt(artist: string, album: string): Promise<string | null> {
-    
-    // --- Fallback 1: iTunes API ---
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
         const response = await fetch(itunesUrl);
         const data = await response.json();
-
         if (data.resultCount > 0) {
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
@@ -125,15 +111,12 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
         console.error("Error fetching from iTunes:", error);
     }
 
-    // --- Fallback 2: MusicBrainz / Cover Art Archive ---
-    // This will only run if iTunes returned nothing.
     console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
     if (musicBrainzArt) {
         return musicBrainzArt;
     }
 
-    // If all fallbacks have failed, return null.
     console.log("All fallbacks failed.");
     return null;
 }
@@ -142,7 +125,6 @@ async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
         const vibrantSwatch = palette.Vibrant || palette.Muted || palette.LightVibrant;
-
         if (vibrantSwatch && vibrantSwatch.hex) {
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
@@ -162,18 +144,14 @@ const getBaseUrl = () => {
 // --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
-    // --- Step 1 & 2: Get User and Options ---
     const options = interaction.data.options ?? [];
     const usernameOption = options.find(opt => opt.name === 'username') as APIApplicationCommandInteractionDataStringOption | undefined;
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
-
-    // Determine if the YouTube scrobble fix should be applied. Default to true.
-    const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value === false ? false : true;
+    const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value !== false;
 
     let lastfmUsername: string | null = null;
     const discordUserId = interaction.member!.user.id;
     
-    // Prioritize username from command option over the registered one
     if (usernameOption) {
         lastfmUsername = usernameOption.value;
     } else {
@@ -190,19 +168,17 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         });
     }
 
-    // --- Step 3: Defer the Interaction (Slow Path) ---
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            type: InteractionResponseType.DeferredChannelMessageWithSource,
-        }),
+        body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
     });
 
     const apiKey = process.env.LASTFM_API_KEY;
     const webhookUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
     
     try {
+        console.log(`Fetching last track for ${lastfmUsername}...`);
         const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${apiKey}&format=json&limit=1`;
         const response = await fetch(apiUrl);
         const data = await response.json();
@@ -221,17 +197,8 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const trackName = track.name;
         const albumName = track.album['#text'];
         
-        // --- ROBUST FIX: Apply YouTube Scrobble Filter ---
-        const originalArtist = artist;
-        console.log(originalArtist);
-        // Use a case-insensitive regex to find and replace " - Topic"
-        const topicPattern = /\s-\sTopic/i;
-        artist = artist.replace(topicPattern, '').trim();
-        console.log(topicPattern);
-        console.log(artist);
-
-        if (artist !== originalArtist) {
-            console.log(`Applied YouTube scrobble fix. Original: "${originalArtist}", Corrected: "${artist}"`);
+        if (applyYoutubeScrobbleFix) {
+            artist = cleanArtistName(artist);
         }
 
         let formattedDuration = "";
@@ -265,7 +232,8 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
                 body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
                 headers: { 'Content-Type': 'application/json' },
             });
-            return;
+            // --- CRITICAL FIX: Return a NextResponse to prevent crashing ---
+            return new NextResponse(null, { status: 204 });
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);
@@ -277,7 +245,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         }
         
         const isNowPlaying = track['@attr']?.nowplaying;
-        const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobled by: ${lastfmUsername}`;
+        const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
         const minTitleLength = 20;
         const paddingChar = '⠀';
         const paddingNeeded = Math.max(0, minTitleLength - trackName.length);
@@ -293,9 +261,9 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         };
 
         const components = [{
-            type: 1, // Action Row
+            type: 1,
             components: [{
-                type: 2, // Button
+                type: 2,
                 style: ButtonStyle.Secondary,
                 label: 'Re-sync',
                 custom_id: `resync_fm_${interaction.member!.user.id}`,
@@ -328,7 +296,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     return new NextResponse(null, { status: 204 });
 };
 
-// --- BUTTON HANDLER ---
+// --- BUTTON HANDLER (REVISED) ---
 
 export async function handleFmResync(interaction: APIMessageComponentButtonInteraction) {
     const originalUserId = interaction.data.custom_id.split('_')[2];
@@ -382,17 +350,9 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
         const trackName = track.name;
         const albumName = track.album['#text'];
 
-        // --- ROBUST FIX: Apply YouTube Scrobble Filter on resync ---
-        const originalArtist = artist;
-        console.log(originalArtist);
-        const topicPattern = /\s-\sTopic/i;
-        artist = artist.replace(topicPattern, '').trim();
-        console.log(artist);
+        // Always apply the fix on resync
+        artist = cleanArtistName(artist);
         
-        if (artist !== originalArtist) {
-            console.log(`Applied YouTube scrobble fix on resync. Original: "${originalArtist}", Corrected: "${artist}"`);
-        }
-
         let formattedDuration = "";
         try {
             const trackInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&format=json`;
@@ -423,7 +383,8 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
                 body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
                 headers: { 'Content-Type': 'application/json' },
             });
-            return;
+            // --- CRITICAL FIX: Return a NextResponse to prevent crashing ---
+            return new NextResponse(null, { status: 204 });
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);

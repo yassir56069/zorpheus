@@ -14,26 +14,29 @@ import { Vibrant } from 'node-vibrant/node';
 // --- NEW HELPER FUNCTION ---
 
 /**
- * A robust, case-insensitive filter to remove " - Topic" from an artist string.
- * Includes clear logging to show when it's being applied.
+ * A robust, case-insensitive filter to remove " - Topic" from the end of an artist string.
+ * Includes detailed logging for debugging.
  * @param artist The original artist name from Last.fm.
  * @returns The cleaned artist name.
  */
 function cleanArtistName(artist: string): string {
-    const originalArtist = artist;
-    // Use a case-insensitive, global regex to find and replace all occurrences of " - Topic"
-    const topicPattern = /\s-\sTopic/gi;
-    const cleanedArtist = artist.replace(topicPattern, '').trim();
+    // Log the function entry and the exact input it received.
+    console.log(`[Artist Filter] Executing. Original artist: "${artist}"`);
+    
+    // This pattern specifically looks for " - Topic" at the VERY END of the string ($).
+    // It also accounts for optional trailing whitespace (\s*) and an optional trailing hyphen (-?).
+    // The 'i' flag makes it case-insensitive.
+    const topicPattern = /\s-\sTopic\s*-?$/i;
 
-    if (cleanedArtist !== originalArtist) {
-        console.log(`[Artist Filter] Applied. Original: "${originalArtist}", Cleaned: "${cleanedArtist}"`);
+    if (topicPattern.test(artist)) {
+        const cleanedArtist = artist.replace(topicPattern, '').trim();
+        console.log(`[Artist Filter] Pattern matched. Cleaned artist to: "${cleanedArtist}"`);
+        return cleanedArtist;
     } else {
-        // This log helps confirm the function ran even if no change was needed.
-        console.log(`[Artist Filter] No change needed for artist: "${originalArtist}"`);
+        console.log(`[Artist Filter] Pattern did not match. No changes made.`);
+        return artist;
     }
-    return cleanedArtist;
 }
-
 
 // --- EXISTING HELPER FUNCTIONS (UNCHANGED) ---
 
@@ -144,6 +147,7 @@ const getBaseUrl = () => {
 // --- MAIN COMMAND HANDLER (REVISED) ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
+    console.log("--- RUNNING FM COMMAND v2 ---"); 
     const options = interaction.data.options ?? [];
     const usernameOption = options.find(opt => opt.name === 'username') as APIApplicationCommandInteractionDataStringOption | undefined;
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;

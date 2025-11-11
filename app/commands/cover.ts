@@ -54,6 +54,36 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     }
 }
 
+/**
+ * Checks if an image URL is valid and if its content can be processed 
+ * (e.g., to extract a dominant color), which is a strong indicator 
+ * of a truly reliable image source.
+ * @param url The image URL to check.
+ * @returns An object containing the URL and the dominant color (if successful), or null.
+ */
+async function getReliableImageUrlAndColor(url: string | null | undefined): Promise<{ url: string, color: number | null } | null> {
+    if (!url) {
+        return null;
+    }
+
+    // Step 1: Basic validation (HEAD request and placeholder check)
+    if (!await isValidImageUrl(url)) {
+        return null;
+    }
+
+    // Step 2: Try to extract dominant color. This requires fetching the full image content.
+    // If this fails, the image URL is likely unreliable (e.g., broken file, slow server, etc.)
+    try {
+        const dominantColor = await getDominantColor(url);
+        // Even if color is null (e.g., pure black/white/transparent), the fact that 
+        // the attempt didn't throw an error indicates the image was fetched and parsed.
+        return { url, color: dominantColor };
+    } catch (e) {
+        console.log(`Failed to extract dominant color for URL: ${url}. Treating as unreliable.`);
+        return null;
+    }
+}
+
 async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
     if (!userAgent) {
@@ -147,23 +177,39 @@ async function findValidatedFallbackCover(artist: string, album: string): Promis
 
 
 /**
- * NEW: Centralized logic to get a verified album art URL.
+ * Centralized logic to get a verified album art URL and its dominant color.
  * It tries the primary URL first, and if that fails, it checks all fallbacks.
  * @param primaryUrl The initial URL from Last.fm.
  * @param artist The artist name for fallbacks.
  * @param album The album name for fallbacks.
- * @returns A promise that resolves to a verified URL or null.
+ * @returns A promise that resolves to an object with the verified URL and color, or null.
  */
-async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, artist: string, album: string): Promise<string | null> {
-    // Step 1: Check if the primary URL from Last.fm is valid.
-    if (await isValidImageUrl(primaryUrl)) {
-        console.log("Primary Last.fm URL is valid.");
-        return primaryUrl!;
+async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, artist: string, album: string): Promise<{ url: string, color: number | null } | null> {
+    
+    // Step 1: Check if the primary URL from Last.fm is reliable (valid and processable).
+    console.log(`Attempting to verify primary Last.fm URL...`);
+    const primaryResult = await getReliableImageUrlAndColor(primaryUrl);
+    
+    if (primaryResult) {
+        console.log("Primary Last.fm URL is reliable.");
+        return primaryResult;
     }
-
+    
     // Step 2: If not, try all validated fallback sources.
-    console.log("Primary URL is invalid or a placeholder. Trying fallbacks...");
-    return await findValidatedFallbackCover(artist, album);
+    console.log("Primary URL is invalid, a placeholder, or unreliable. Trying fallbacks...");
+    const fallbackUrl = await findValidatedFallbackCover(artist, album);
+
+    if (fallbackUrl) {
+        // Fallbacks have already been checked for basic validity in findValidatedFallbackCover, 
+        // but we'll run the full check (including color extraction) here for consistency and safety.
+        const fallbackResult = await getReliableImageUrlAndColor(fallbackUrl);
+        if (fallbackResult) {
+            console.log("Successfully verified and processed fallback URL.");
+            return fallbackResult;
+        }
+    }
+    
+    return null;
 }
 
 
@@ -216,6 +262,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         let finalAlbumArtUrl: string | null = null;
         let finalArtist: string | null = null;
         let finalAlbumName: string | null = null;
+        let dominantColor = null;
 
         for (const query of searchQueries) {
             console.log(`--- Searching for: "${query}" ---`);
@@ -237,15 +284,15 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
             const verifiedUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
 
             if (verifiedUrl) {
-                finalAlbumArtUrl = verifiedUrl;
+                finalAlbumArtUrl = verifiedUrl.url;
                 finalArtist = artist;
                 finalAlbumName = albumName;
+                dominantColor = verifiedUrl.color;
                 break; // Found a valid cover, no need to try other queries.
             }
         }
 
         if (finalAlbumArtUrl && finalArtist && finalAlbumName) {
-            const dominantColor = await getDominantColor(finalAlbumArtUrl);
             const baseUrl = getBaseUrl();
             const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
             const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
@@ -313,14 +360,21 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const primaryUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
         // Use the same reliable function to get the cover.
-        const albumArtUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
+        const verifiedResult = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
+
+        if (!verifiedResult) {
+            await sendFinalResponse(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
+            return;
+        }
+
+        const albumArtUrl = verifiedResult.url;
+        const dominantColor = verifiedResult.color; 
 
         if (!albumArtUrl) {
             await sendFinalResponse(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
             return;
         }
 
-        const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
         const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
         const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;

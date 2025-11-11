@@ -235,7 +235,60 @@ const getBaseUrl = () => {
 
 // This function sends the final message to Discord.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function sendFinalResponse(interaction: APIChatInputApplicationCommandInteraction, content: any) {
+/**
+ * NEW: Sends the final message to Discord, handling both embeds (JSON) and an optional file (multipart/form-data).
+ * @param interaction The interaction object.
+ * @param embedData The embed object to send.
+ * @param finalAlbumArtUrl The verified external URL of the album art.
+ */
+async function sendFinalResponse(
+    interaction: APIChatInputApplicationCommandInteraction,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    embedData: any, 
+    finalAlbumArtUrl: string
+) {
+    // --- Step 1: Download the image ---
+    const imageResponse = await fetch(finalAlbumArtUrl);
+    if (!imageResponse.ok) {
+        // Fallback to sending the embed without the image if download fails
+        console.error(`Failed to download image from ${finalAlbumArtUrl}. Sending embed without image.`);
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ embeds: [embedData] }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+        return;
+    }
+    const imageBuffer = await imageResponse.arrayBuffer();
+
+    // --- Step 2: Prepare the embed to reference the attachment ---
+    // The embed's image URL must reference the file name attached.
+    const filename = 'cover.png';
+    const embedWithAttachment = {
+        ...embedData,
+        image: { url: `attachment://${filename}` }
+    };
+    
+    // --- Step 3: Prepare the multipart/form-data payload ---
+    const formData = new FormData();
+    // Payload for the embed and other message parts
+    formData.append('payload_json', JSON.stringify({ embeds: [embedWithAttachment] }));
+    // The image file
+    // Note: 'image/png' is a safe default, even for jpgs, for simple display.
+    formData.append('files[0]', new Blob([imageBuffer], { type: 'image/png' }), filename); 
+
+    // --- Step 4: PATCH the original message with the file and embed ---
+    // The 'PATCH' request uses the content of the formData.
+    await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+        method: 'PATCH',
+        body: formData,
+        // MUST NOT set Content-Type header manually for FormData, fetch will set the correct boundary
+    });
+}
+
+// Overload for sending text-only content (like error messages)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function sendFinalResponseText(interaction: APIChatInputApplicationCommandInteraction, content: any) {
     await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
         method: 'PATCH',
         body: JSON.stringify(content),
@@ -294,6 +347,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
 
         if (finalAlbumArtUrl && finalArtist && finalAlbumName) {
             const baseUrl = getBaseUrl();
+            const highResUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/"); // Keep the high-res URL for download
             const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
             const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
             
@@ -301,23 +355,22 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
                 title: finalAlbumName,
                 description: `-# by **${finalArtist}**`,
                 color: dominantColor || 0xd51007,
-                image: { url: finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/") },
                 footer: {
                     text: `Searched by: ${interaction.member!.user.username}`,
                     icon_url: iconUrl
                 }
             };
-            await sendFinalResponse(interaction, { embeds: [embed] });
+            await sendFinalResponse(interaction, embed, highResUrl);
         } else {
             let content = `Could not find album art for \`${initialSearchQuery}\`.`;
             if (searchQueries.length > 1) {
                 content += ` (also tried \`${normalizedQuery}\`).`;
             }
-            await sendFinalResponse(interaction, { content });
+            await sendFinalResponseText(interaction, { content });
         }
     } catch (error) {
         console.error(error);
-        await sendFinalResponse(interaction, { content: 'An error occurred while processing your request.' });
+        await sendFinalResponseText(interaction, { content: 'An error occurred while processing your request.' });
     }
 }
 
@@ -363,15 +416,16 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const verifiedResult = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
 
         if (!verifiedResult) {
-            await sendFinalResponse(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
+            await sendFinalResponseText(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
             return;
         }
 
         const albumArtUrl = verifiedResult.url;
         const dominantColor = verifiedResult.color; 
+        const highResUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/"); // Keep the high-res URL for download
 
         if (!albumArtUrl) {
-            await sendFinalResponse(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
+            await sendFinalResponseText(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
             return;
         }
 
@@ -386,17 +440,15 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
             title: albumName,
             description: `-# by **${artist}**`,
             color: dominantColor || 0xd51007,
-            image: { url: albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/") },
             footer: { text: footerText, icon_url: iconUrl }
         };
 
-        await sendFinalResponse(interaction, { embeds: [embed] });
+        await sendFinalResponse(interaction, embed, highResUrl);
     } catch (error) {
         console.error(error);
-        await sendFinalResponse(interaction, { content: 'An error occurred while fetching data from Last.fm.' });
+        await sendFinalResponseText(interaction, { content: 'An error occurred while fetching data from Last.fm.' });
     }
 }
-
 
 export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
     const options = interaction.data.options ?? [];

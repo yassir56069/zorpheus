@@ -191,7 +191,7 @@ async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, art
     const primaryResult = await getReliableImageUrlAndColor(primaryUrl);
     
     if (primaryResult) {
-        console.log(`Primary Last.fm URL is reliable. result: ${primaryResult}`);
+        console.log(`Primary Last.fm URL is reliable. result: ${primaryResult.url}`);
         return primaryResult;
     }
     

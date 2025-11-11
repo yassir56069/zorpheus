@@ -78,6 +78,7 @@ async function getReliableImageUrlAndColor(url: string | null | undefined): Prom
         // Even if color is null (e.g., pure black/white/transparent), the fact that 
         // the attempt didn't throw an error indicates the image was fetched and parsed.
         return { url, color: dominantColor };
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
         console.log(`Failed to extract dominant color for URL: ${url}. Treating as unreliable.`);
         return null;
@@ -234,7 +235,6 @@ const getBaseUrl = () => {
 };
 
 // This function sends the final message to Discord.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 /**
  * NEW: Sends the final message to Discord, handling both embeds (JSON) and an optional file (multipart/form-data).
  * @param interaction The interaction object.
@@ -395,7 +395,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const data = await response.json();
 
         if (data.error || !data.recenttracks?.track.length) {
-            await sendFinalResponse(interaction, { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` });
+            await sendFinalResponseText(interaction, { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` });
             return;
         }
         

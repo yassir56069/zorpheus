@@ -11,7 +11,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 // Import command handlers
 import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
-import { handleCover } from '@/app/commands/cover';
+import { handleCover, handleCoverSelection } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
 
@@ -75,7 +75,11 @@ export async function POST(req: Request) {
             return handleFmResync(componentInteraction);
         }
 
-        // Existing handler for countdown buttons
+        // --- NEW: Route cover selection buttons ---
+        if (customId.startsWith('cover_select_')) {
+            return handleCoverSelection(componentInteraction);
+        }
+
         if (customId.startsWith('countdown_')) { // Example prefix for your countdown buttons
              return handleCountdownInteraction(componentInteraction);
         }

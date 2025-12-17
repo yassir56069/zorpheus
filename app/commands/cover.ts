@@ -9,30 +9,17 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
-/**
- * Converts a string to its base ASCII equivalent.
- * e.g., "Déjà Vu" -> "Deja Vu"
- * @param str The string to normalize.
- * @returns The normalized string.
- */
+// --- Helper Functions ---
+
 function normalizeString(str: string): string {
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-/**
- * Checks if an image URL is valid and responsive within a given timeout.
- * @param url The URL of the image to check.
- * @param timeout The timeout in milliseconds.
- * @returns True if the image is valid and responds in time, false otherwise.
- */
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
-    if (!url) {
-        return false;
-    }
+    if (!url) return false;
 
     // Check for Last.fm's known placeholder image
     if (url === 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') {
-        console.log('LastFM returned a placeholder image.');
         return false;
     }
 
@@ -43,72 +30,40 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
         clearTimeout(timeoutId);
         return response.ok;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
         clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === 'AbortError') {
-            console.log(`Image URL timed out: ${url}`);
-        } else {
-            console.error(`Error fetching image URL head: ${url}`, error);
-        }
         return false;
     }
 }
 
-/**
- * Checks if an image URL is valid and if its content can be processed 
- * (e.g., to extract a dominant color), which is a strong indicator 
- * of a truly reliable image source.
- * @param url The image URL to check.
- * @returns An object containing the URL and the dominant color (if successful), or null.
- */
 async function getReliableImageUrlAndColor(url: string | null | undefined): Promise<{ url: string, color: number | null } | null> {
-    if (!url) {
-        return null;
-    }
+    if (!url) return null;
+    if (!await isValidImageUrl(url)) return null;
 
-    // Step 1: Basic validation (HEAD request and placeholder check)
-    if (!await isValidImageUrl(url)) {
-        return null;
-    }
-
-    // Step 2: Try to extract dominant color. This requires fetching the full image content.
-    // If this fails, the image URL is likely unreliable (e.g., broken file, slow server, etc.)
     try {
         const dominantColor = await getDominantColor(url);
-        // Even if color is null (e.g., pure black/white/transparent), the fact that 
-        // the attempt didn't throw an error indicates the image was fetched and parsed.
         return { url, color: dominantColor };
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
-        console.log(`Failed to extract dominant color for URL: ${url}. Treating as unreliable.`);
         return null;
     }
 }
 
 async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
     const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
-    if (!userAgent) {
-        console.log("MusicBrainz User-Agent not set, skipping this fallback.");
-        return null;
-    }
+    if (!userAgent) return null;
 
     try {
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
         const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
 
-        if (!mbResponse.ok) {
-            console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
-            return null;
-        }
+        if (!mbResponse.ok) return null;
 
         const mbData = await mbResponse.json();
-        const release = mbData.releases?.[0];
-        const releaseId = release?.id;
+        const releaseId = mbData.releases?.[0]?.id;
 
-        if (!releaseId) {
-            console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
-            return null;
-        }
+        if (!releaseId) return null;
 
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
         const caResponse = await fetch(coverArtUrl);
@@ -118,27 +73,15 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
         const caData = await caResponse.json();
         const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
 
-        if (frontImage?.image) {
-            console.log("Successfully got album art from Cover Art Archive.");
-            return frontImage.image;
-        }
+        return frontImage?.image || null;
     } catch (error) {
         console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
+        return null;
     }
-    return null;
 }
 
-/**
- * NEW: A more robust function that finds a cover from fallbacks AND validates it.
- * This ensures we only return a URL that is confirmed to be working.
- * @param artist The artist name.
- * @param album The album name.
- * @returns A validated image URL or null.
- */
 async function findValidatedFallbackCover(artist: string, album: string): Promise<string | null> {
-    console.log(`Searching fallbacks for "${album}" by "${artist}"`);
-
-    // --- Fallback 1: iTunes API ---
+    // 1. Try iTunes
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
@@ -149,70 +92,34 @@ async function findValidatedFallbackCover(artist: string, album: string): Promis
             const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
             const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
             
-            // Key Improvement: Validate the URL before returning it
             if (await isValidImageUrl(highResUrl)) {
-                console.log(`Successfully found and validated album art from iTunes: ${highResUrl}`);
                 return highResUrl;
             }
-            console.log(`iTunes URL found but failed validation: ${highResUrl}`);
         }
     } catch (error) {
         console.error("Error fetching from iTunes:", error);
     }
 
-    // --- Fallback 2: MusicBrainz / Cover Art Archive ---
-    console.log("iTunes failed or its URL was invalid, trying MusicBrainz...");
+    // 2. Try MusicBrainz
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
-    if (musicBrainzArt) {
-        // Key Improvement: Validate the MusicBrainz URL as well
-        if (await isValidImageUrl(musicBrainzArt)) {
-            console.log(`Successfully found and validated album art from MusicBrainz: ${musicBrainzArt}`);
-            return musicBrainzArt;
-        }
-        console.log(`MusicBrainz URL found but failed validation: ${musicBrainzArt}`);
+    if (musicBrainzArt && await isValidImageUrl(musicBrainzArt)) {
+        return musicBrainzArt;
     }
 
-    console.log(`All fallbacks failed for "${album}" by "${artist}".`);
     return null;
 }
 
-
-/**
- * Centralized logic to get a verified album art URL and its dominant color.
- * It tries the primary URL first, and if that fails, it checks all fallbacks.
- * @param primaryUrl The initial URL from Last.fm.
- * @param artist The artist name for fallbacks.
- * @param album The album name for fallbacks.
- * @returns A promise that resolves to an object with the verified URL and color, or null.
- */
 async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, artist: string, album: string): Promise<{ url: string, color: number | null } | null> {
-    
-    // Step 1: Check if the primary URL from Last.fm is reliable (valid and processable).
-    console.log(`Attempting to verify primary Last.fm URL...`);
     const primaryResult = await getReliableImageUrlAndColor(primaryUrl);
+    if (primaryResult) return primaryResult;
     
-    if (primaryResult) {
-        console.log(`Primary Last.fm URL is reliable. result: ${primaryResult.url}`);
-        return primaryResult;
-    }
-    
-    // Step 2: If not, try all validated fallback sources.
-    console.log("Primary URL is invalid, a placeholder, or unreliable. Trying fallbacks...");
     const fallbackUrl = await findValidatedFallbackCover(artist, album);
-
     if (fallbackUrl) {
-        // Fallbacks have already been checked for basic validity in findValidatedFallbackCover, 
-        // but we'll run the full check (including color extraction) here for consistency and safety.
-        const fallbackResult = await getReliableImageUrlAndColor(fallbackUrl);
-        if (fallbackResult) {
-            console.log("Successfully verified and processed fallback URL.");
-            return fallbackResult;
-        }
+        return await getReliableImageUrlAndColor(fallbackUrl);
     }
     
     return null;
 }
-
 
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
@@ -221,8 +128,9 @@ async function getDominantColor(imageUrl: string): Promise<number | null> {
         if (vibrantSwatch?.hex) {
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-        console.error("Error getting dominant color:", error);
+        // Silent catch
     }
     return null;
 }
@@ -234,12 +142,10 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
-// This function sends the final message to Discord.
 /**
- * NEW: Sends the final message to Discord, handling both embeds (JSON) and an optional file (multipart/form-data).
- * @param interaction The interaction object.
- * @param embedData The embed object to send.
- * @param finalAlbumArtUrl The verified external URL of the album art.
+ * Sends the final response by splitting the image and the embed into two separate requests.
+ * 1. Updates the original message with just the image file.
+ * 2. Sends a follow-up message with the embed info.
  */
 async function sendFinalResponse(
     interaction: APIChatInputApplicationCommandInteraction,
@@ -247,46 +153,42 @@ async function sendFinalResponse(
     embedData: any, 
     finalAlbumArtUrl: string
 ) {
-    // --- Step 1: Download the image ---
-    const imageResponse = await fetch(finalAlbumArtUrl);
-    if (!imageResponse.ok) {
-        // Fallback to sending the embed without the image if download fails
-        console.error(`Failed to download image from ${finalAlbumArtUrl}. Sending embed without image.`);
+    try {
+        // --- Step 1: Download the image ---
+        const imageResponse = await fetch(finalAlbumArtUrl);
+        if (!imageResponse.ok) throw new Error("Failed to fetch image");
+        const imageBuffer = await imageResponse.arrayBuffer();
+
+        // --- Step 2: Send Image (PATCH @original) ---
+        // This mirrors your working 'rc' command: Just a clean file upload.
+        const formData = new FormData();
+        formData.append('file', new Blob([imageBuffer]), 'cover.png');
+
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: formData,
+        });
+
+        // --- Step 3: Send Embed (POST Follow-up) ---
+        // We send a NEW message (POST) to the webhook root, not editing the original.
+        // This places the embed nicely below the image.
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`, {
+            method: 'POST',
+            body: JSON.stringify({ embeds: [embedData] }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+    } catch (error) {
+        console.error("Error sending split response:", error);
+        // Fallback: If image upload fails, just send the embed to the original message so the bot doesn't hang.
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',
             body: JSON.stringify({ embeds: [embedData] }),
             headers: { 'Content-Type': 'application/json' },
         });
-        return;
     }
-    const imageBuffer = await imageResponse.arrayBuffer();
-
-    // --- Step 2: Prepare the embed to reference the attachment ---
-    // The embed's image URL must reference the file name attached.
-    const filename = 'cover.png';
-    const embedWithAttachment = {
-        ...embedData,
-        image: { url: `attachment://${filename}` }
-    };
-    
-    // --- Step 3: Prepare the multipart/form-data payload ---
-    const formData = new FormData();
-    // Payload for the embed and other message parts
-    formData.append('payload_json', JSON.stringify({ embeds: [embedWithAttachment] }));
-    // The image file
-    // Note: 'image/png' is a safe default, even for jpgs, for simple display.
-    formData.append('files[0]', new Blob([imageBuffer], { type: 'image/png' }), filename); 
-
-    // --- Step 4: PATCH the original message with the file and embed ---
-    // The 'PATCH' request uses the content of the formData.
-    await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-        method: 'PATCH',
-        body: formData,
-        // MUST NOT set Content-Type header manually for FormData, fetch will set the correct boundary
-    });
 }
 
-// Overload for sending text-only content (like error messages)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function sendFinalResponseText(interaction: APIChatInputApplicationCommandInteraction, content: any) {
     await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
@@ -296,8 +198,9 @@ async function sendFinalResponseText(interaction: APIChatInputApplicationCommand
     });
 }
 
+// --- Main Handlers ---
+
 async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, initialSearchQuery: string) {
-    // Defer the reply immediately. This is correct.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
@@ -307,9 +210,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
     const apiKey = process.env.LASTFM_API_KEY;
     const searchQueries = [initialSearchQuery];
     const normalizedQuery = normalizeString(initialSearchQuery);
-    if (normalizedQuery !== initialSearchQuery) {
-        searchQueries.push(normalizedQuery);
-    }
+    if (normalizedQuery !== initialSearchQuery) searchQueries.push(normalizedQuery);
 
     try {
         let finalAlbumArtUrl: string | null = null;
@@ -318,22 +219,17 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
         let dominantColor = null;
 
         for (const query of searchQueries) {
-            console.log(`--- Searching for: "${query}" ---`);
             const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&album=${encodeURIComponent(query)}&api_key=${apiKey}&format=json&limit=1`;
             const response = await fetch(apiUrl);
             const data = await response.json();
 
             const albumData = data.results?.albummatches?.album?.[0];
-            if (!albumData) {
-                console.log(`Last.fm found no results for "${query}".`);
-                continue;
-            }
+            if (!albumData) continue;
 
             const artist = albumData.artist;
             const albumName = albumData.name;
             const primaryUrl = albumData.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || albumData.image[albumData.image.length - 1]?.['#text'];
 
-            // Use the new centralized function to get a verified cover.
             const verifiedUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
 
             if (verifiedUrl) {
@@ -341,13 +237,13 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
                 finalArtist = artist;
                 finalAlbumName = albumName;
                 dominantColor = verifiedUrl.color;
-                break; // Found a valid cover, no need to try other queries.
+                break;
             }
         }
 
         if (finalAlbumArtUrl && finalArtist && finalAlbumName) {
             const baseUrl = getBaseUrl();
-            const highResUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/"); // Keep the high-res URL for download
+            const highResUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
             const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
             const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
             
@@ -363,9 +259,7 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
             await sendFinalResponse(interaction, embed, highResUrl);
         } else {
             let content = `Could not find album art for \`${initialSearchQuery}\`.`;
-            if (searchQueries.length > 1) {
-                content += ` (also tried \`${normalizedQuery}\`).`;
-            }
+            if (searchQueries.length > 1) content += ` (also tried \`${normalizedQuery}\`).`;
             await sendFinalResponseText(interaction, { content });
         }
     } catch (error) {
@@ -375,14 +269,12 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
 }
 
 async function handleUserScrobble(interaction: APIChatInputApplicationCommandInteraction, lastfmUsername: string) {
-    // Defer the reply immediately.
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
         body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
         headers: { 'Content-Type': 'application/json' },
     });
     
-    // --- NEW: Read options ---
     const options = interaction.data.options ?? [];
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
     const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value === false ? false : true;
@@ -404,15 +296,12 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const trackName = track.name;
         const albumName = track.album['#text'];
 
-        // --- NEW: Apply YouTube Scrobble Fix ---
         if (applyYoutubeScrobbleFix && artist.endsWith(' - Topic')) {
             artist = artist.replace(' - Topic', '').trim();
-            console.log(`Applied YouTube scrobble fix. Original: "${track.artist['#text']}", Corrected: "${artist}"`);
         }
 
         const primaryUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
 
-        // Use the same reliable function to get the cover.
         const verifiedResult = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
 
         if (!verifiedResult) {
@@ -422,12 +311,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
 
         const albumArtUrl = verifiedResult.url;
         const dominantColor = verifiedResult.color; 
-        const highResUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/"); // Keep the high-res URL for download
-
-        if (!albumArtUrl) {
-            await sendFinalResponseText(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
-            return;
-        }
+        const highResUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
 
         const baseUrl = getBaseUrl();
         const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
@@ -465,13 +349,12 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
                 type: InteractionResponseType.ChannelMessageWithSource,
                 data: {
                     content: `You must register your Last.fm username with \`/register\` first. Or, use \`/cover search:<album name>\` to find an album.`,
-                    flags: 1 << 6, // Ephemeral message
+                    flags: 1 << 6, 
                 },
             });
         }
         await handleUserScrobble(interaction, lastfmUsername);
     }
     
-    // We have handled the response by deferring and then patching, so we return 204.
     return new NextResponse(null, { status: 204 });
 }

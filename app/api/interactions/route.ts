@@ -11,7 +11,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 // Import command handlers
 import { handlePing } from '@/app/commands/ping';
 import { handleRegister } from '@/app/commands/register';
-import { handleCover } from '@/app/commands/cover';
+import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
 
@@ -73,6 +73,11 @@ export async function POST(req: Request) {
         // --- NEW: Route fm button interactions ---
         if (customId.startsWith('resync_fm_')) {
             return handleFmResync(componentInteraction);
+        }
+
+        // --- NEW: Route cover buttons ---
+        if (customId.startsWith('cov_')) {
+            return handleCoverButtonInteraction(componentInteraction);
         }
 
         // Existing handler for countdown buttons

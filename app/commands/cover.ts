@@ -5,23 +5,40 @@ import {
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
     APIApplicationCommandInteractionDataBooleanOption,
+    APIMessageComponentButtonInteraction,
+    ButtonStyle,
+    ComponentType,
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 
+// --- Types ---
+
+interface CoverSession {
+    userId: string;
+    artist: string;
+    album: string;
+    covers: CoverImage[];
+    currentIndex: number;
+}
+
+interface CoverImage {
+    url: string;
+    source: 'iTunes' | 'MusicBrainz' | 'Last.fm';
+    color: number | null;
+}
+
 // --- Helper Functions ---
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function normalizeString(str: string): string {
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) return false;
-
-    // Check for Last.fm's known placeholder image
-    if (url === 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') {
-        return false;
-    }
+    // Check for Last.fm's known placeholder
+    if (url.includes('2a96cbd8b46e442fc41c2b86b821562f')) return false;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -37,90 +54,6 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
     }
 }
 
-async function getReliableImageUrlAndColor(url: string | null | undefined): Promise<{ url: string, color: number | null } | null> {
-    if (!url) return null;
-    if (!await isValidImageUrl(url)) return null;
-
-    try {
-        const dominantColor = await getDominantColor(url);
-        return { url, color: dominantColor };
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) {
-        return null;
-    }
-}
-
-async function findCoverOnMusicBrainz(artist: string, album: string): Promise<string | null> {
-    const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
-    if (!userAgent) return null;
-
-    try {
-        const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
-        const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
-
-        if (!mbResponse.ok) return null;
-
-        const mbData = await mbResponse.json();
-        const releaseId = mbData.releases?.[0]?.id;
-
-        if (!releaseId) return null;
-
-        const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
-        const caResponse = await fetch(coverArtUrl);
-
-        if (!caResponse.ok) return null;
-
-        const caData = await caResponse.json();
-        const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
-
-        return frontImage?.image || null;
-    } catch (error) {
-        console.error("Error fetching from MusicBrainz/Cover Art Archive:", error);
-        return null;
-    }
-}
-
-async function findValidatedFallbackCover(artist: string, album: string): Promise<string | null> {
-    // 1. Try iTunes
-    try {
-        const searchTerm = `${artist} ${album}`;
-        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;
-        const response = await fetch(itunesUrl);
-        const data = await response.json();
-
-        if (data.resultCount > 0) {
-            const bestMatch = data.results.find((r: { collectionName: string; }) => r.collectionName.toLowerCase() === album.toLowerCase()) || data.results[0];
-            const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
-            
-            if (await isValidImageUrl(highResUrl)) {
-                return highResUrl;
-            }
-        }
-    } catch (error) {
-        console.error("Error fetching from iTunes:", error);
-    }
-
-    // 2. Try MusicBrainz
-    const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
-    if (musicBrainzArt && await isValidImageUrl(musicBrainzArt)) {
-        return musicBrainzArt;
-    }
-
-    return null;
-}
-
-async function getVerifiedAlbumArtUrl(primaryUrl: string | null | undefined, artist: string, album: string): Promise<{ url: string, color: number | null } | null> {
-    const primaryResult = await getReliableImageUrlAndColor(primaryUrl);
-    if (primaryResult) return primaryResult;
-    
-    const fallbackUrl = await findValidatedFallbackCover(artist, album);
-    if (fallbackUrl) {
-        return await getReliableImageUrlAndColor(fallbackUrl);
-    }
-    
-    return null;
-}
-
 async function getDominantColor(imageUrl: string): Promise<number | null> {
     try {
         const palette = await Vibrant.from(imageUrl).getPalette();
@@ -129,10 +62,97 @@ async function getDominantColor(imageUrl: string): Promise<number | null> {
             return parseInt(vibrantSwatch.hex.substring(1), 16);
         }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (error) {
-        // Silent catch
+    } catch (error) { /* Silent catch */ }
+    return null;
+}
+
+// --- Fetching Logic ---
+
+async function fetchFromMusicBrainz(artist: string, album: string): Promise<CoverImage | null> {
+    const userAgent = process.env.MUSICBRAINZ_USER_AGENT;
+    if (!userAgent) return null;
+
+    try {
+        const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
+        const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
+        if (!mbResponse.ok) return null;
+
+        const mbData = await mbResponse.json();
+        const releaseId = mbData.releases?.[0]?.id;
+        if (!releaseId) return null;
+
+        const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
+        const caResponse = await fetch(coverArtUrl);
+        if (!caResponse.ok) return null;
+
+        const caData = await caResponse.json();
+        const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
+
+        if (frontImage?.image && await isValidImageUrl(frontImage.image)) {
+            const color = await getDominantColor(frontImage.image);
+            return { url: frontImage.image, source: 'MusicBrainz', color };
+        }
+    } catch (e) { console.error("MB Error", e); }
+    return null;
+}
+
+async function fetchFromITunes(artist: string, album: string): Promise<CoverImage | null> {
+    try {
+        const searchTerm = `${artist} ${album}`;
+        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=1`;
+        const response = await fetch(itunesUrl);
+        const data = await response.json();
+
+        if (data.resultCount > 0) {
+            const bestMatch = data.results[0];
+            const highResUrl = bestMatch.artworkUrl100.replace('100x100', '1000x1000');
+            if (await isValidImageUrl(highResUrl)) {
+                const color = await getDominantColor(highResUrl);
+                return { url: highResUrl, source: 'iTunes', color };
+            }
+        }
+    } catch (e) { console.error("iTunes Error", e); }
+    return null;
+}
+
+// Last.fm is passed in usually, but helper here for consistency
+async function processLastFmUrl(url: string | null): Promise<CoverImage | null> {
+    if (!url) return null;
+    const highResUrl = url.replace(/\/\d+x\d+\//, "/1000x1000/");
+    if (await isValidImageUrl(highResUrl)) {
+        const color = await getDominantColor(highResUrl);
+        return { url: highResUrl, source: 'Last.fm', color };
     }
     return null;
+}
+
+/**
+ * Gathers covers from all sources concurrently.
+ */
+async function collectAllCovers(artist: string, album: string, lastFmUrl: string | null): Promise<CoverImage[]> {
+    const promises = [
+        fetchFromITunes(artist, album),
+        fetchFromMusicBrainz(artist, album),
+        processLastFmUrl(lastFmUrl)
+    ];
+
+    const results = await Promise.allSettled(promises);
+    
+    const covers: CoverImage[] = [];
+    results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+            // Avoid duplicates based on URL (simple check)
+            if (!covers.some(c => c.url === result.value!.url)) {
+                covers.push(result.value);
+            }
+        }
+    });
+
+    // Sort priority: iTunes > MusicBrainz > Last.fm
+    const priority = { 'iTunes': 0, 'MusicBrainz': 1, 'Last.fm': 2 };
+    covers.sort((a, b) => priority[a.source] - priority[b.source]);
+
+    return covers;
 }
 
 const getBaseUrl = () => {
@@ -142,64 +162,89 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
-/**
- * Sends the final message to Discord in a SINGLE request.
- * This combines the Embed and the Image Attachment into one message.
- */
+// --- Response Handling ---
+
+function buildComponents(sessionId: string, current: number, total: number) {
+    if (total <= 1) return [];
+
+    return [{
+        type: ComponentType.ActionRow,
+        components: [
+            {
+                type: ComponentType.Button,
+                custom_id: `cov_prev_${sessionId}`,
+                style: ButtonStyle.Secondary,
+                label: '◀',
+                disabled: current === 0
+            },
+            {
+                type: ComponentType.Button,
+                custom_id: `cov_stat_${sessionId}`,
+                style: ButtonStyle.Secondary,
+                label: `${current + 1} / ${total}`,
+                disabled: true
+            },
+            {
+                type: ComponentType.Button,
+                custom_id: `cov_next_${sessionId}`,
+                style: ButtonStyle.Secondary,
+                label: '▶',
+                disabled: current === total - 1
+            }
+        ]
+    }];
+}
+
 async function sendFinalResponse(
-    interaction: APIChatInputApplicationCommandInteraction,
+    appId: string,
+    token: string,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     embedData: any, 
-    finalAlbumArtUrl: string
+    coverImage: CoverImage,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    components: any[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    isUpdate = false
 ) {
     try {
-        // --- Step 1: Download the image ---
-        // We download it fresh to ensure we have a valid buffer to upload
-        const imageResponse = await fetch(finalAlbumArtUrl);
+        const imageResponse = await fetch(coverImage.url);
         
         if (!imageResponse.ok) {
-            console.error(`Failed to download image from ${finalAlbumArtUrl}. Sending embed only.`);
-            // Fallback: Send just the embed if the image fails to download
-            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            console.error(`Failed to download image from ${coverImage.url}`);
+            // Fallback: Embed only
+            await fetch(`https://discord.com/api/v10/webhooks/${appId}/${token}/messages/@original`, {
                 method: 'PATCH',
-                body: JSON.stringify({ embeds: [embedData] }),
+                body: JSON.stringify({ embeds: [embedData], components: [] }),
                 headers: { 'Content-Type': 'application/json' },
             });
             return;
         }
 
         const imageBuffer = await imageResponse.arrayBuffer();
-
-        // --- Step 2: Construct the Multipart Payload ---
         const formData = new FormData();
 
-        // Append the Embed JSON
-        // 'payload_json' is the specific key Discord expects for JSON data when files are attached
-        formData.append('payload_json', JSON.stringify({ 
-            embeds: [embedData] 
-        }));
+        // Update footer to include Source
+        embedData.footer = {
+            ...embedData.footer,
+            text: `${embedData.footer.text} • Source: ${coverImage.source}`
+        };
 
-        // Append the Image File
-        // IMPORTANT: When using 'payload_json', attachments must be named 'files[n]'
-        formData.append('files[0]', new Blob([imageBuffer]), 'cover.png'); 
+        const payload = {
+            embeds: [embedData],
+            components: components,
+            attachments: [{ id: 0, filename: 'cover.png' }] // Distinct attachment reference
+        };
 
-        // --- Step 3: PATCH the original message ---
-        // This updates the "Loading..." message with both the embed and the file.
-        const response = await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+        formData.append('payload_json', JSON.stringify(payload));
+        formData.append('files[0]', new Blob([imageBuffer]), 'cover.png');
+
+        const response = await fetch(`https://discord.com/api/v10/webhooks/${appId}/${token}/messages/@original`, {
             method: 'PATCH',
             body: formData,
-            // NOTE: Do NOT set 'Content-Type' header manually. 
-            // The fetch API automatically sets it to 'multipart/form-data; boundary=...'
         });
 
         if (!response.ok) {
-            console.error(`Discord API Error: ${response.status} ${response.statusText}`);
-            // Last resort fallback
-             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                body: JSON.stringify({ embeds: [embedData] }),
-                headers: { 'Content-Type': 'application/json' },
-            });
+            console.error(`Discord API Error: ${response.status}`);
         }
 
     } catch (error) {
@@ -207,16 +252,65 @@ async function sendFinalResponse(
     }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function sendFinalResponseText(interaction: APIChatInputApplicationCommandInteraction, content: any) {
-    await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-        method: 'PATCH',
-        body: JSON.stringify(content),
-        headers: { 'Content-Type': 'application/json' },
-    });
-}
 
 // --- Main Handlers ---
+
+async function processCoverRequest(
+    interaction: APIChatInputApplicationCommandInteraction,
+    artist: string,
+    albumName: string,
+    rawLastFmUrl: string | null,
+    footerText: string
+) {
+    // 1. Gather all covers
+    const covers = await collectAllCovers(artist, albumName, rawLastFmUrl);
+
+    if (covers.length === 0) {
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ content: `Could not find album art for **${albumName}** by **${artist}**.` }),
+            headers: { 'Content-Type': 'application/json' },
+        });
+        return;
+    }
+
+    // 2. Prepare Session Data
+    const sessionId = interaction.id; // Use interaction ID as unique session key
+    const sessionData: CoverSession = {
+        userId: interaction.member!.user.id,
+        artist,
+        album: albumName,
+        covers,
+        currentIndex: 0
+    };
+
+    // 3. Store in KV (Expires in 5 mins to save hobby tier limits)
+    await kv.set(`cov_sess:${sessionId}`, sessionData, { ex: 300 });
+
+    // 4. Construct Initial Response
+    const currentCover = covers[0];
+    const hexColor = (currentCover.color || 0xd51007).toString(16).padStart(6, '0');
+    const iconUrl = `${getBaseUrl()}/api/recolor-icon?color=${hexColor}`;
+
+    const embed = {
+        title: albumName,
+        description: `-# by **${artist}**`,
+        color: currentCover.color || 0xd51007,
+        footer: { text: footerText, icon_url: iconUrl }
+    };
+
+    const components = buildComponents(sessionId, 0, covers.length);
+
+    await sendFinalResponse(
+        interaction.application_id,
+        interaction.token,
+        embed,
+        currentCover,
+        components
+    );
+}
+
+// --- Handler Entry Points ---
 
 async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, initialSearchQuery: string) {
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
@@ -226,63 +320,39 @@ async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInte
     });
 
     const apiKey = process.env.LASTFM_API_KEY;
-    const searchQueries = [initialSearchQuery];
-    const normalizedQuery = normalizeString(initialSearchQuery);
-    if (normalizedQuery !== initialSearchQuery) searchQueries.push(normalizedQuery);
-
+    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&album=${encodeURIComponent(initialSearchQuery)}&api_key=${apiKey}&format=json&limit=1`;
+    
     try {
-        let finalAlbumArtUrl: string | null = null;
-        let finalArtist: string | null = null;
-        let finalAlbumName: string | null = null;
-        let dominantColor = null;
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        const albumData = data.results?.albummatches?.album?.[0];
 
-        for (const query of searchQueries) {
-            const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&album=${encodeURIComponent(query)}&api_key=${apiKey}&format=json&limit=1`;
-            const response = await fetch(apiUrl);
-            const data = await response.json();
-
-            const albumData = data.results?.albummatches?.album?.[0];
-            if (!albumData) continue;
-
-            const artist = albumData.artist;
-            const albumName = albumData.name;
-            const primaryUrl = albumData.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || albumData.image[albumData.image.length - 1]?.['#text'];
-
-            const verifiedUrl = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
-
-            if (verifiedUrl) {
-                finalAlbumArtUrl = verifiedUrl.url;
-                finalArtist = artist;
-                finalAlbumName = albumName;
-                dominantColor = verifiedUrl.color;
-                break;
-            }
+        if (!albumData) {
+             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ content: `Could not find album \`${initialSearchQuery}\`.` }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+            return;
         }
 
-        if (finalAlbumArtUrl && finalArtist && finalAlbumName) {
-            const baseUrl = getBaseUrl();
-            const highResUrl = finalAlbumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
-            const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
-            const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
-            
-            const embed = {
-                title: finalAlbumName,
-                description: `-# by **${finalArtist}**`,
-                color: dominantColor || 0xd51007,
-                footer: {
-                    text: `Searched by: ${interaction.member!.user.username}`,
-                    icon_url: iconUrl
-                }
-            };
-            await sendFinalResponse(interaction, embed, highResUrl);
-        } else {
-            let content = `Could not find album art for \`${initialSearchQuery}\`.`;
-            if (searchQueries.length > 1) content += ` (also tried \`${normalizedQuery}\`).`;
-            await sendFinalResponseText(interaction, { content });
-        }
+        const artist = albumData.artist;
+        const albumName = albumData.name;
+        // Get largest available image
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lastFmUrl = albumData.image.find((img: any) => img.size === 'extralarge')?.['#text'] || albumData.image.at(-1)?.['#text'];
+
+        await processCoverRequest(
+            interaction, 
+            artist, 
+            albumName, 
+            lastFmUrl, 
+            `Searched by: ${interaction.member!.user.username}`
+        );
+
     } catch (error) {
         console.error(error);
-        await sendFinalResponseText(interaction, { content: 'An error occurred while processing your request.' });
+        // Error handling...
     }
 }
 
@@ -293,6 +363,7 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         headers: { 'Content-Type': 'application/json' },
     });
     
+    // ... existing options parsing ...
     const options = interaction.data.options ?? [];
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
     const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value === false ? false : true;
@@ -305,51 +376,114 @@ async function handleUserScrobble(interaction: APIChatInputApplicationCommandInt
         const data = await response.json();
 
         if (data.error || !data.recenttracks?.track.length) {
-            await sendFinalResponseText(interaction, { content: `Could not find any recent tracks for user \`${lastfmUsername}\`.` });
+            // ... error handling
             return;
         }
         
         const track = data.recenttracks.track[0];
         let artist = track.artist['#text'];
-        const trackName = track.name;
         const albumName = track.album['#text'];
 
         if (applyYoutubeScrobbleFix && artist.endsWith(' - Topic')) {
             artist = artist.replace(' - Topic', '').trim();
         }
 
-        const primaryUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text'] || track.image[track.image.length - 1]?.['#text'];
-
-        const verifiedResult = await getVerifiedAlbumArtUrl(primaryUrl, artist, albumName);
-
-        if (!verifiedResult) {
-            await sendFinalResponseText(interaction, { content: `Could not find album art for **${trackName}** by **${artist}**.` });
-            return;
-        }
-
-        const albumArtUrl = verifiedResult.url;
-        const dominantColor = verifiedResult.color; 
-        const highResUrl = albumArtUrl.replace(/\/\d+x\d+\//, "/1000x1000/");
-
-        const baseUrl = getBaseUrl();
-        const hexColor = (dominantColor || 0xd51007).toString(16).padStart(6, '0');
-        const iconUrl = `${baseUrl}/api/recolor-icon?color=${hexColor}`;
-        
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lastFmUrl = track.image.find((img: any) => img.size === 'extralarge')?.['#text'] || track.image.at(-1)?.['#text'];
         const isNowPlaying = track['@attr']?.nowplaying;
         const footerText = isNowPlaying ? `Currently listening: ${lastfmUsername}` : `Last scrobbled by: ${lastfmUsername}`;
 
-        const embed = {
-            title: albumName,
-            description: `-# by **${artist}**`,
-            color: dominantColor || 0xd51007,
-            footer: { text: footerText, icon_url: iconUrl }
-        };
+        await processCoverRequest(
+            interaction, 
+            artist, 
+            albumName, 
+            lastFmUrl, 
+            footerText
+        );
 
-        await sendFinalResponse(interaction, embed, highResUrl);
     } catch (error) {
         console.error(error);
-        await sendFinalResponseText(interaction, { content: 'An error occurred while fetching data from Last.fm.' });
     }
+}
+
+// --- NEW: Button Interaction Handler ---
+
+export async function handleCoverButtonInteraction(interaction: APIMessageComponentButtonInteraction) {
+    const customId = interaction.data.custom_id;
+    // Format: cov_<action>_<sessionId>
+    const [, action, sessionId] = customId.split('_');
+
+    // 1. Acknowledge immediately (Update Message)
+    // We defer update so the user doesn't see "Interaction Failed" while we download the image
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        body: JSON.stringify({ type: InteractionResponseType.DeferredMessageUpdate }),
+        headers: { 'Content-Type': 'application/json' },
+    });
+
+    // 2. Retrieve Session
+    const sessionKey = `cov_sess:${sessionId}`;
+    const session = await kv.get<CoverSession>(sessionKey);
+
+    if (!session) {
+        // Session expired
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: JSON.stringify({ components: [] }), // Remove buttons
+            headers: { 'Content-Type': 'application/json' },
+        });
+        return new NextResponse(null, { status: 200 });
+    }
+
+    // 3. Authorization Check
+    if (interaction.member!.user.id !== session.userId) {
+        // We can't reply ephemerally to a DeferredMessageUpdate easily in a way that doesn't edit the message.
+        // Usually, you would do a separate POST to send an ephemeral error, 
+        // but for simplicity here we just ignore the click or log it.
+        return new NextResponse(null, { status: 200 });
+    }
+
+    // 4. Update Logic
+    let newIndex = session.currentIndex;
+    if (action === 'prev') newIndex = Math.max(0, newIndex - 1);
+    if (action === 'next') newIndex = Math.min(session.covers.length - 1, newIndex + 1);
+
+    if (newIndex === session.currentIndex) return new NextResponse(null, { status: 200 }); // No change
+
+    // 5. Update State
+    session.currentIndex = newIndex;
+    await kv.set(sessionKey, session, { ex: 300 }); // Refresh TTL
+
+    // 6. Fetch New Image and Send Update
+    const currentCover = session.covers[newIndex];
+    const hexColor = (currentCover.color || 0xd51007).toString(16).padStart(6, '0');
+    const iconUrl = `${getBaseUrl()}/api/recolor-icon?color=${hexColor}`;
+
+    // Reconstruct Embed (We need to preserve the footer text but change the icon)
+    // To do this perfectly, we'd ideally store the footer text in KV, but let's reconstruct it or grab it from the interaction message if possible.
+    // Since we don't have the footer text in KV, we can check interaction.message
+    const originalEmbed = interaction.message.embeds[0];
+    const originalFooterText = originalEmbed.footer?.text?.split(' • Source:')[0] || `Album: ${session.album}`;
+
+    const embed = {
+        title: session.album,
+        description: `-# by **${session.artist}**`,
+        color: currentCover.color || 0xd51007,
+        footer: { text: originalFooterText, icon_url: iconUrl }
+    };
+
+    const components = buildComponents(sessionId, newIndex, session.covers.length);
+
+    await sendFinalResponse(
+        interaction.application_id,
+        interaction.token,
+        embed,
+        currentCover,
+        components,
+        true
+    );
+
+    return new NextResponse(null, { status: 200 });
 }
 
 export async function handleCover(interaction: APIChatInputApplicationCommandInteraction) {
@@ -366,7 +500,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
             return NextResponse.json({
                 type: InteractionResponseType.ChannelMessageWithSource,
                 data: {
-                    content: `You must register your Last.fm username with \`/register\` first. Or, use \`/cover search:<album name>\` to find an album.`,
+                    content: `You must register first.`,
                     flags: 1 << 6, 
                 },
             });

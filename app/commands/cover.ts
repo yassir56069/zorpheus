@@ -143,9 +143,8 @@ const getBaseUrl = () => {
 };
 
 /**
- * Sends the final response by splitting the image and the embed into two separate requests.
- * 1. Updates the original message with just the image file.
- * 2. Sends a follow-up message with the embed info.
+ * Sends the final message to Discord in a SINGLE request.
+ * This combines the Embed and the Image Attachment into one message.
  */
 async function sendFinalResponse(
     interaction: APIChatInputApplicationCommandInteraction,
@@ -155,37 +154,56 @@ async function sendFinalResponse(
 ) {
     try {
         // --- Step 1: Download the image ---
+        // We download it fresh to ensure we have a valid buffer to upload
         const imageResponse = await fetch(finalAlbumArtUrl);
-        if (!imageResponse.ok) throw new Error("Failed to fetch image");
+        
+        if (!imageResponse.ok) {
+            console.error(`Failed to download image from ${finalAlbumArtUrl}. Sending embed only.`);
+            // Fallback: Send just the embed if the image fails to download
+            await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ embeds: [embedData] }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+            return;
+        }
+
         const imageBuffer = await imageResponse.arrayBuffer();
 
-        // --- Step 2: Send Image (PATCH @original) ---
-        // This mirrors your working 'rc' command: Just a clean file upload.
+        // --- Step 2: Construct the Multipart Payload ---
         const formData = new FormData();
-        formData.append('file', new Blob([imageBuffer]), 'cover.png');
 
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+        // Append the Embed JSON
+        // 'payload_json' is the specific key Discord expects for JSON data when files are attached
+        formData.append('payload_json', JSON.stringify({ 
+            embeds: [embedData] 
+        }));
+
+        // Append the Image File
+        // IMPORTANT: When using 'payload_json', attachments must be named 'files[n]'
+        formData.append('files[0]', new Blob([imageBuffer]), 'cover.png'); 
+
+        // --- Step 3: PATCH the original message ---
+        // This updates the "Loading..." message with both the embed and the file.
+        const response = await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',
             body: formData,
+            // NOTE: Do NOT set 'Content-Type' header manually. 
+            // The fetch API automatically sets it to 'multipart/form-data; boundary=...'
         });
 
-        // --- Step 3: Send Embed (POST Follow-up) ---
-        // We send a NEW message (POST) to the webhook root, not editing the original.
-        // This places the embed nicely below the image.
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`, {
-            method: 'POST',
-            body: JSON.stringify({ embeds: [embedData] }),
-            headers: { 'Content-Type': 'application/json' },
-        });
+        if (!response.ok) {
+            console.error(`Discord API Error: ${response.status} ${response.statusText}`);
+            // Last resort fallback
+             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                body: JSON.stringify({ embeds: [embedData] }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
 
     } catch (error) {
-        console.error("Error sending split response:", error);
-        // Fallback: If image upload fails, just send the embed to the original message so the bot doesn't hang.
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ embeds: [embedData] }),
-            headers: { 'Content-Type': 'application/json' },
-        });
+        console.error("Error sending combined response:", error);
     }
 }
 

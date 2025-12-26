@@ -3,6 +3,7 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
+    APIApplicationCommandInteractionDataBooleanOption
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
@@ -47,6 +48,16 @@ type AggregatedAlbum = {
 };
 
 // --- HELPER FUNCTIONS FOR FILTERING ---
+
+function isGreyImage(album: Album | AggregatedAlbum): boolean {
+    const imageUrl = album.image.find((img) => img.size === 'extralarge')?.['#text'] || 
+                     album.image.find((img) => img.size === 'large')?.['#text'] || '';
+    
+    return !imageUrl || 
+           imageUrl.trim() === '' || 
+           imageUrl.includes('/2a96cbd8b46e442fc41c2b86b821562f.png');
+}
+
 
 /**
  * Normalizes strings: lowercase, removes all spaces and punctuation.
@@ -178,7 +189,12 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
 
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'server-chart.png');
-        const content = `-# *OrpheusCore Top Albums*`;
+        const periodDisplayNames: { [key: string]: string } = {
+            '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
+            '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
+        };
+        
+        const content = `-# *OrpheusCore Top Albums (${periodDisplayNames[period]})*`;
         formData.append('payload_json', JSON.stringify({ content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
@@ -402,8 +418,13 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
 
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');
-        const content = `-# *Top Albums (${lastfmUsername})*`;
-        formData.append('payload_json', JSON.stringify({ content }));
+        const periodDisplayNames: { [key: string]: string } = {
+            '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
+            '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
+        };
+        
+        const content = `-# *Top Albums (${periodDisplayNames[period]}) - **${lastfmUsername}***`;
+        formData.append('payload_json', JSON.stringify({ content: content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH', body: formData,

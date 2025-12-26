@@ -160,6 +160,18 @@ const commands = [
           { name: 'Names Under Albums', value: 'under' },
         ],
       },
+      {
+        name: 'filter_remastered',
+        description: 'Combine remastered versions into the original album (Default: True).',
+        type: 5, // BOOLEAN
+        required: false,
+      },
+      {
+        name: 'filter_greys',
+        description: 'Filter out albums that have no cover art (Default: True).',
+        type: 5, // BOOLEAN
+        required: false,
+      }
     ]
   },
   {
@@ -231,6 +243,18 @@ const commands = [
           { name: 'Names Under Albums', value: 'under' },
         ],
       },
+      {
+        name: 'filter_remastered',
+        description: 'Combine remastered versions into the original album (Default: True).',
+        type: 5, // BOOLEAN
+        required: false,
+      },
+      {
+        name: 'filter_greys',
+        description: 'Filter out albums that have no cover art (Default: True).',
+        type: 5, // BOOLEAN
+        required: false,
+      }
     ]
   },
 ];

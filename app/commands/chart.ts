@@ -58,26 +58,15 @@ function isGreyImage(album: Album | AggregatedAlbum): boolean {
            imageUrl.includes('/2a96cbd8b46e442fc41c2b86b821562f.png');
 }
 
-
-/**
- * Normalizes strings: lowercase, removes all spaces and punctuation.
- * If the result is empty (only punctuation), it returns the lowercase string without spaces.
- */
 function normalizeString(str: string): string {
     const normalized = str.toLowerCase().replace(/[\s\p{P}]/gu, '');
     return normalized === '' ? str.toLowerCase().replace(/\s/g, '') : normalized;
 }
 
-/**
- * Strips bracketed content and dash-trailed content if they contain "remaster".
- * Also creates a "stripped" version for general bracket/dash comparison.
- */
 function getBaseName(albumName: string): string {
-    // 1. Specifically target remaster tags in brackets or after dashes
     const base = albumName
         .replace(/\s*[\(\[].*?remaster.*?[\)\]]/gi, '')
         .replace(/\s*-.*?remaster.*/gi, '')
-        // 2. Remove generic brackets/dashes to compare "Album (2021)" vs "Album"
         .replace(/\s*[\(\[].*?[\)\]]/g, '')
         .replace(/\s*-.*$/, '')
         .trim();
@@ -85,27 +74,17 @@ function getBaseName(albumName: string): string {
     return base === '' ? albumName : base;
 }
 
-/**
- * Determines if album B is a "better" version to keep than album A.
- * We prefer albums that do NOT have the word "remaster" in them.
- */
 function isBetterVersion(current: Album | AggregatedAlbum, incoming: Album | AggregatedAlbum): boolean {
     const currentIsRemaster = current.name.toLowerCase().includes('remaster');
     const incomingIsRemaster = incoming.name.toLowerCase().includes('remaster');
-
-    // If current is a remaster and incoming isn't, incoming is better.
     if (currentIsRemaster && !incomingIsRemaster) return true;
-    
-    // Otherwise, if current is much longer (likely has more tags), incoming is probably cleaner.
     if (!currentIsRemaster && !incomingIsRemaster) {
         return incoming.name.length < current.name.length;
     }
-
     return false;
 }
 
 // #region server chart
-
 export async function handleServerChart(interaction: APIChatInputApplicationCommandInteraction) {
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
@@ -113,12 +92,17 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
         headers: { 'Content-Type': 'application/json' },
     });
 
-    const options = (interaction.data.options || []) as APIApplicationCommandInteractionDataStringOption[];
-    const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
+    const options = (interaction.data.options || []);
+    const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
-    const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
-    const period = options.find(opt => opt.name === 'period')?.value || '7day';
+    const displayStyle = (options.find(opt => opt.name === 'labelling') as APIApplicationCommandInteractionDataStringOption)?.value || 'no_names';
+    const period = (options.find(opt => opt.name === 'period') as APIApplicationCommandInteractionDataStringOption)?.value || '7day';
+    
+    // NEW PARAMETERS (Default to true)
+    const filterRemastered = (options.find(opt => opt.name === 'filter_remastered') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
+    const filterGreys = (options.find(opt => opt.name === 'filter_greys') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
+
     const apiKey = process.env.LASTFM_API_KEY;
 
     try {
@@ -137,7 +121,6 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
 
         const lastfmUsernames = (await kv.mget(...userKeys)) as string[];
 
-        // Fetching 200 to ensure we have enough after deduplication
         const fetchPromises = lastfmUsernames.map(username => {
             if (!username) return null;
             const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${username}&period=${period}&api_key=${apiKey}&format=json&limit=200`;
@@ -151,9 +134,14 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
             if (result.status === 'fulfilled' && result.value.topalbums) {
                 const albums: Album[] = result.value.topalbums.album;
                 for (const album of albums) {
-                    // NEW FILTERING LOGIC:
+                    
+                    // 1. Filter Out Greys Logic
+                    if (filterGreys && isGreyImage(album)) continue;
+
+                    // 2. Filter Out Remastered Logic
                     const artistPart = normalizeString(album.artist.name);
-                    const albumPart = normalizeString(getBaseName(album.name));
+                    const albumBaseName = filterRemastered ? getBaseName(album.name) : album.name;
+                    const albumPart = normalizeString(albumBaseName);
                     const key = `${artistPart}-${albumPart}`;
                     
                     const playCount = parseInt(album.playcount.toString(), 10);
@@ -161,7 +149,6 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
                     if (albumScrobbles.has(key)) {
                         const existing = albumScrobbles.get(key)!;
                         existing.playcount += playCount;
-                        // Keep the "cleanest" looking album name/image
                         if (isBetterVersion(existing, album)) {
                             existing.name = album.name;
                             existing.image = album.image;
@@ -206,7 +193,6 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
     }
     return new NextResponse(null, { status: 204 });
 }
-
 // #endregion
 
 
@@ -351,12 +337,17 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         headers: { 'Content-Type': 'application/json' },
     });
 
-    const options = (interaction.data.options || []) as APIApplicationCommandInteractionDataStringOption[];
-    let lastfmUsername = options.find(opt => opt.name === 'user')?.value || null;
-    const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
+    const options = (interaction.data.options || []);
+    let lastfmUsername = (options.find(opt => opt.name === 'user') as APIApplicationCommandInteractionDataStringOption)?.value || null;
+    const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
-    const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
+    const displayStyle = (options.find(opt => opt.name === 'labelling') as APIApplicationCommandInteractionDataStringOption)?.value || 'no_names';
+    const period = (options.find(opt => opt.name === 'period') as APIApplicationCommandInteractionDataStringOption)?.value || '7day';
+
+    // NEW PARAMETERS (Default to true)
+    const filterRemastered = (options.find(opt => opt.name === 'filter_remastered') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
+    const filterGreys = (options.find(opt => opt.name === 'filter_greys') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
 
     if (!lastfmUsername) {
         const discordUserId = interaction.member!.user.id;
@@ -370,12 +361,10 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
     }
 
-    const period = options.find(opt => opt.name === 'period')?.value || '7day';
     const apiKey = process.env.LASTFM_API_KEY;
     
-    // We fetch a larger amount (150) so that if we filter out 20 remasters, 
-    // we still have enough unique albums to fill a 10x10 (100) grid.
-    const fetchLimit = Math.max(limit * 2, 100);
+    // Fetch more albums because filtering greys/remasters shrinks the list
+    const fetchLimit = Math.max(limit * 3, 150);
     const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=${fetchLimit}`;
 
     try {
@@ -390,8 +379,13 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         const filteredMap = new Map<string, Album>();
 
         for (const album of rawAlbums) {
+            // 1. Filter Out Greys Logic
+            if (filterGreys && isGreyImage(album)) continue;
+
+            // 2. Filter Out Remastered Logic
             const artistPart = normalizeString(album.artist.name);
-            const albumPart = normalizeString(getBaseName(album.name));
+            const albumBaseName = filterRemastered ? getBaseName(album.name) : album.name;
+            const albumPart = normalizeString(albumBaseName);
             const key = `${artistPart}-${albumPart}`;
 
             if (filteredMap.has(key)) {
@@ -407,7 +401,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         const finalAlbums = Array.from(filteredMap.values()).slice(0, limit);
 
         if (finalAlbums.length < limit) {
-            const content = `Could not find ${limit} unique albums after filtering duplicates for \`${lastfmUsername}\`.`;
+            const content = `Could not find ${limit} unique albums after filtering duplicates/empty art for \`${lastfmUsername}\`. Found ${finalAlbums.length}.`;
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });

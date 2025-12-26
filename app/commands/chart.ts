@@ -46,6 +46,53 @@ type AggregatedAlbum = {
     playcount: number; // We will store playcount as a number
 };
 
+// --- HELPER FUNCTIONS FOR FILTERING ---
+
+/**
+ * Normalizes strings: lowercase, removes all spaces and punctuation.
+ * If the result is empty (only punctuation), it returns the lowercase string without spaces.
+ */
+function normalizeString(str: string): string {
+    const normalized = str.toLowerCase().replace(/[\s\p{P}]/gu, '');
+    return normalized === '' ? str.toLowerCase().replace(/\s/g, '') : normalized;
+}
+
+/**
+ * Strips bracketed content and dash-trailed content if they contain "remaster".
+ * Also creates a "stripped" version for general bracket/dash comparison.
+ */
+function getBaseName(albumName: string): string {
+    // 1. Specifically target remaster tags in brackets or after dashes
+    const base = albumName
+        .replace(/\s*[\(\[].*?remaster.*?[\)\]]/gi, '')
+        .replace(/\s*-.*?remaster.*/gi, '')
+        // 2. Remove generic brackets/dashes to compare "Album (2021)" vs "Album"
+        .replace(/\s*[\(\[].*?[\)\]]/g, '')
+        .replace(/\s*-.*$/, '')
+        .trim();
+
+    return base === '' ? albumName : base;
+}
+
+/**
+ * Determines if album B is a "better" version to keep than album A.
+ * We prefer albums that do NOT have the word "remaster" in them.
+ */
+function isBetterVersion(current: Album | AggregatedAlbum, incoming: Album | AggregatedAlbum): boolean {
+    const currentIsRemaster = current.name.toLowerCase().includes('remaster');
+    const incomingIsRemaster = incoming.name.toLowerCase().includes('remaster');
+
+    // If current is a remaster and incoming isn't, incoming is better.
+    if (currentIsRemaster && !incomingIsRemaster) return true;
+    
+    // Otherwise, if current is much longer (likely has more tags), incoming is probably cleaner.
+    if (!currentIsRemaster && !incomingIsRemaster) {
+        return incoming.name.length < current.name.length;
+    }
+
+    return false;
+}
+
 // #region server chart
 
 export async function handleServerChart(interaction: APIChatInputApplicationCommandInteraction) {
@@ -64,15 +111,13 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
     const apiKey = process.env.LASTFM_API_KEY;
 
     try {
-        // 1. Get all registered Last.fm usernames from Vercel KV
         const userKeys: string[] = [];
         for await (const key of kv.scanIterator()) {
-            // Assuming keys are Discord User IDs
             userKeys.push(key);
         }
 
         if (userKeys.length === 0) {
-            const content = 'No users have registered their Last.fm accounts with `/register` yet.';
+            const content = 'No users have registered their Last.fm accounts yet.';
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
@@ -81,86 +126,68 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
 
         const lastfmUsernames = (await kv.mget(...userKeys)) as string[];
 
-        // 2. Fetch top albums for all users concurrently
+        // Fetching 200 to ensure we have enough after deduplication
         const fetchPromises = lastfmUsernames.map(username => {
             if (!username) return null;
-            const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${username}&period=${period}&api_key=${apiKey}&format=json&limit=100`; // Fetch more albums per user
+            const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${username}&period=${period}&api_key=${apiKey}&format=json&limit=200`;
             return fetch(apiUrl).then(res => res.json());
         }).filter(Boolean);
 
         const results = await Promise.allSettled(fetchPromises);
-
-        // 3. Aggregate the data
         const albumScrobbles = new Map<string, AggregatedAlbum>();
 
         for (const result of results) {
             if (result.status === 'fulfilled' && result.value.topalbums) {
                 const albums: Album[] = result.value.topalbums.album;
                 for (const album of albums) {
-                    const key = `${album.artist.name.toLowerCase()} - ${album.name.toLowerCase()}`;
+                    // NEW FILTERING LOGIC:
+                    const artistPart = normalizeString(album.artist.name);
+                    const albumPart = normalizeString(getBaseName(album.name));
+                    const key = `${artistPart}-${albumPart}`;
+                    
                     const playCount = parseInt(album.playcount.toString(), 10);
 
                     if (albumScrobbles.has(key)) {
-                        albumScrobbles.get(key)!.playcount += playCount;
+                        const existing = albumScrobbles.get(key)!;
+                        existing.playcount += playCount;
+                        // Keep the "cleanest" looking album name/image
+                        if (isBetterVersion(existing, album)) {
+                            existing.name = album.name;
+                            existing.image = album.image;
+                        }
                     } else {
-                        albumScrobbles.set(key, {
-                            ...album,
-                            playcount: playCount,
-                        });
+                        albumScrobbles.set(key, { ...album, playcount: playCount });
                     }
                 }
             }
         }
 
-        if (albumScrobbles.size === 0) {
-            const content = 'Could not fetch any album data for registered users in this period.';
-             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-                method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
-            });
-            return new NextResponse(null, { status: 204 });
-        }
-
-        // 4. Sort by scrobbles and get the top albums
         const sortedAlbums = Array.from(albumScrobbles.values())
             .sort((a, b) => b.playcount - a.playcount)
             .slice(0, limit);
 
         if (sortedAlbums.length < limit) {
-             const content = `Not enough unique albums listened to by the server to generate a ${sizeOption} chart. Found ${sortedAlbums.length} albums.`;
+             const content = `Not enough unique albums found to generate a ${sizeOption} chart. Found ${sortedAlbums.length} albums.`;
              await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
             return new NextResponse(null, { status: 204 });
         }
 
-        // 5. Generate the chart image (reusing your existing function)
         const chartImageBuffer = await createChartImage(sortedAlbums, gridWidth, gridHeight, displayStyle);
 
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'server-chart.png');
-        
-        const periodDisplayNames: { [key: string]: string } = {
-            '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
-            '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
-        };
-        
-        const content = `-# *OrpheusCore Top Albums (${periodDisplayNames[period]})*`;
+        const content = `-# *OrpheusCore Top Albums*`;
         formData.append('payload_json', JSON.stringify({ content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: formData,
+            method: 'PATCH', body: formData,
         });
 
     } catch (error) {
         console.error("Server Chart command error:", error);
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ content: 'An error occurred while generating the server chart.' }),
-            headers: { 'Content-Type': 'application/json' },
-        });
     }
-
     return new NextResponse(null, { status: 204 });
 }
 
@@ -310,19 +337,16 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
 
     const options = (interaction.data.options || []) as APIApplicationCommandInteractionDataStringOption[];
     let lastfmUsername = options.find(opt => opt.name === 'user')?.value || null;
-
     const sizeOption = options.find(opt => opt.name === 'size')?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
     const displayStyle = options.find(opt => opt.name === 'labelling')?.value || 'no_names';
 
-
     if (!lastfmUsername) {
         const discordUserId = interaction.member!.user.id;
         lastfmUsername = await kv.get(discordUserId) as string | null;
-
         if (!lastfmUsername) {
-            const content = 'Please register your Last.fm username with `/register` or specify a user in the command.';
+            const content = 'Please register your Last.fm username with `/register`.';
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
@@ -332,50 +356,61 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
 
     const period = options.find(opt => opt.name === 'period')?.value || '7day';
     const apiKey = process.env.LASTFM_API_KEY;
-    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=${limit}`;
+    
+    // We fetch a larger amount (150) so that if we filter out 20 remasters, 
+    // we still have enough unique albums to fill a 10x10 (100) grid.
+    const fetchLimit = Math.max(limit * 2, 100);
+    const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=${fetchLimit}`;
 
     try {
         const response = await fetch(apiUrl);
         const data = await response.json();
 
-        if (data.error || !data.topalbums || data.topalbums.album.length < limit) {
-            const content = `Could not fetch ${limit} albums for \`${lastfmUsername}\`. They may need to listen to more music to generate a chart for this period.`;
+        if (data.error || !data.topalbums) {
+            throw new Error("Last.fm API error");
+        }
+
+        const rawAlbums: Album[] = data.topalbums.album;
+        const filteredMap = new Map<string, Album>();
+
+        for (const album of rawAlbums) {
+            const artistPart = normalizeString(album.artist.name);
+            const albumPart = normalizeString(getBaseName(album.name));
+            const key = `${artistPart}-${albumPart}`;
+
+            if (filteredMap.has(key)) {
+                const existing = filteredMap.get(key)!;
+                if (isBetterVersion(existing, album)) {
+                    filteredMap.set(key, album);
+                }
+            } else {
+                filteredMap.set(key, album);
+            }
+        }
+
+        const finalAlbums = Array.from(filteredMap.values()).slice(0, limit);
+
+        if (finalAlbums.length < limit) {
+            const content = `Could not find ${limit} unique albums after filtering duplicates for \`${lastfmUsername}\`.`;
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
             return new NextResponse(null, { status: 204 });
         }
 
-        const albums: Album[] = data.topalbums.album;
-        const chartImageBuffer = await createChartImage(albums, gridWidth, gridHeight, displayStyle);
+        const chartImageBuffer = await createChartImage(finalAlbums, gridWidth, gridHeight, displayStyle);
 
         const formData = new FormData();
-
-        // not sure why the image buffer errors, but ignore
-        //estlin-disable-next-line
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');
-
-        const periodDisplayNames: { [key: string]: string } = {
-            '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
-            '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
-        };
-        
-        const content = `-# *Top Albums (${periodDisplayNames[period]}) - **${lastfmUsername}***`;
-        formData.append('payload_json', JSON.stringify({ content: content }));
+        const content = `-# *Top Albums (${lastfmUsername})*`;
+        formData.append('payload_json', JSON.stringify({ content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: formData,
+            method: 'PATCH', body: formData,
         });
 
     } catch (error) {
         console.error("Chart command error:", error);
-        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
-            method: 'PATCH',
-            body: JSON.stringify({ content: 'An error occurred while generating your chart.' }),
-            headers: { 'Content-Type': 'application/json' },
-        });
     }
-
     return new NextResponse(null, { status: 204 });
 }

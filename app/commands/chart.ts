@@ -85,6 +85,7 @@ function isBetterVersion(current: Album | AggregatedAlbum, incoming: Album | Agg
 }
 
 // #region server chart
+
 export async function handleServerChart(interaction: APIChatInputApplicationCommandInteraction) {
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
         method: 'POST',
@@ -99,7 +100,7 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
     const displayStyle = (options.find(opt => opt.name === 'labelling') as APIApplicationCommandInteractionDataStringOption)?.value || 'no_names';
     const period = (options.find(opt => opt.name === 'period') as APIApplicationCommandInteractionDataStringOption)?.value || '7day';
     
-    // NEW PARAMETERS (Default to true)
+    // Parameters
     const filterRemastered = (options.find(opt => opt.name === 'filter_remastered') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
     const filterGreys = (options.find(opt => opt.name === 'filter_greys') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
 
@@ -135,10 +136,10 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
                 const albums: Album[] = result.value.topalbums.album;
                 for (const album of albums) {
                     
-                    // 1. Filter Out Greys Logic
+                    // Filter Greys
                     if (filterGreys && isGreyImage(album)) continue;
 
-                    // 2. Filter Out Remastered Logic
+                    // Grouping Logic
                     const artistPart = normalizeString(album.artist.name);
                     const albumBaseName = filterRemastered ? getBaseName(album.name) : album.name;
                     const albumPart = normalizeString(albumBaseName);
@@ -165,7 +166,7 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
             .slice(0, limit);
 
         if (sortedAlbums.length < limit) {
-             const content = `Not enough unique albums found to generate a ${sizeOption} chart. Found ${sortedAlbums.length} albums.`;
+             const content = `Not enough unique albums found for a ${sizeOption} chart. Found ${sortedAlbums.length}.`;
              await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
@@ -173,14 +174,13 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
         }
 
         const chartImageBuffer = await createChartImage(sortedAlbums, gridWidth, gridHeight, displayStyle);
-
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'server-chart.png');
+        
         const periodDisplayNames: { [key: string]: string } = {
             '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
             '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
-        
         const content = `-# *OrpheusCore Top Albums (${periodDisplayNames[period]})*`;
         formData.append('payload_json', JSON.stringify({ content }));
 
@@ -189,7 +189,7 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
         });
 
     } catch (error) {
-        console.error("Server Chart command error:", error);
+        console.error("Server Chart error:", error);
     }
     return new NextResponse(null, { status: 204 });
 }
@@ -345,7 +345,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     const displayStyle = (options.find(opt => opt.name === 'labelling') as APIApplicationCommandInteractionDataStringOption)?.value || 'no_names';
     const period = (options.find(opt => opt.name === 'period') as APIApplicationCommandInteractionDataStringOption)?.value || '7day';
 
-    // NEW PARAMETERS (Default to true)
+    // Parameters
     const filterRemastered = (options.find(opt => opt.name === 'filter_remastered') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
     const filterGreys = (options.find(opt => opt.name === 'filter_greys') as APIApplicationCommandInteractionDataBooleanOption)?.value ?? true;
 
@@ -362,27 +362,22 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
     }
 
     const apiKey = process.env.LASTFM_API_KEY;
-    
-    // Fetch more albums because filtering greys/remasters shrinks the list
-    const fetchLimit = Math.max(limit * 3, 150);
+    const fetchLimit = Math.max(limit * 3, 150); 
     const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.gettopalbums&user=${lastfmUsername}&period=${period}&api_key=${apiKey}&format=json&limit=${fetchLimit}`;
 
     try {
         const response = await fetch(apiUrl);
         const data = await response.json();
-
-        if (data.error || !data.topalbums) {
-            throw new Error("Last.fm API error");
-        }
+        if (data.error || !data.topalbums) throw new Error("Last.fm API error");
 
         const rawAlbums: Album[] = data.topalbums.album;
         const filteredMap = new Map<string, Album>();
 
         for (const album of rawAlbums) {
-            // 1. Filter Out Greys Logic
+            // 1. Filter Greys
             if (filterGreys && isGreyImage(album)) continue;
 
-            // 2. Filter Out Remastered Logic
+            // 2. Filter Remastered/Deluxe
             const artistPart = normalizeString(album.artist.name);
             const albumBaseName = filterRemastered ? getBaseName(album.name) : album.name;
             const albumPart = normalizeString(albumBaseName);
@@ -401,7 +396,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         const finalAlbums = Array.from(filteredMap.values()).slice(0, limit);
 
         if (finalAlbums.length < limit) {
-            const content = `Could not find ${limit} unique albums after filtering duplicates/empty art for \`${lastfmUsername}\`. Found ${finalAlbums.length}.`;
+            const content = `Could not find enough albums for \`${lastfmUsername}\` after filtering. Found ${finalAlbums.length}.`;
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
@@ -409,23 +404,22 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         }
 
         const chartImageBuffer = await createChartImage(finalAlbums, gridWidth, gridHeight, displayStyle);
-
         const formData = new FormData();
         formData.append('file', new Blob([chartImageBuffer]), 'chart.png');
+        
         const periodDisplayNames: { [key: string]: string } = {
             '7day': 'Last 7 Days', '1month': 'Last Month', '3month': 'Last 3 Months',
             '6month': 'Last 6 Months', '12month': 'Last Year', 'overall': 'All Time'
         };
-        
         const content = `-# *Top Albums (${periodDisplayNames[period]}) - **${lastfmUsername}***`;
-        formData.append('payload_json', JSON.stringify({ content: content }));
+        formData.append('payload_json', JSON.stringify({ content }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH', body: formData,
         });
 
     } catch (error) {
-        console.error("Chart command error:", error);
+        console.error("Chart error:", error);
     }
     return new NextResponse(null, { status: 204 });
 }

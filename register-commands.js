@@ -161,8 +161,8 @@ const commands = [
         ],
       },
       {
-        name: 'filter_remastered',
-        description: 'Combine remastered versions into the original album (Default: True).',
+        name: 'filter_remastered_deluxe',
+        description: 'Combine remastered and deluxe versions into the original album (Default: True).',
         type: 5, // BOOLEAN
         required: false,
       },

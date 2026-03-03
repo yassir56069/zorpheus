@@ -38,15 +38,15 @@ export async function handleJoin(interaction: APIChatInputApplicationCommandInte
             type: InteractionResponseType.ChannelMessageWithSource,
             data: { 
                 content: `🍷 Welcome to ZORPHEUS 🩸🦇, **${displayName}**! Your profile has been created/updated.\n` +
-                         (lastfmUsername ? `- Last.fm: \`${lastfmUsername}\`\n` : '') +
-                         (rymUsername ? `- RYM: \`${rymUsername}\`` : '')
+                         (lastfmUsername ? `-# Last.fm: \`${lastfmUsername}\`\n` : '') +
+                         (rymUsername ? `-# RYM: \`${rymUsername}\`` : '')
             },
         });
     } catch (error) {
         console.error("Database error in /join:", error);
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: "❌ There was an error saving your profile to the database." },
+            data: { content: "-# ❌ There was an error saving your profile to the database. Please try again later" },
         });
     }
 }

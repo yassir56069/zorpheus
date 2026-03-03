@@ -37,7 +37,7 @@ export async function handleJoin(interaction: APIChatInputApplicationCommandInte
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: { 
-                content: `✅ Welcome to the database, **${displayName}**! Your profile has been created/updated.\n` +
+                content: `🍷 Welcome to ZORPHEUS 🩸🦇, **${displayName}**! Your profile has been created/updated.\n` +
                          (lastfmUsername ? `- Last.fm: \`${lastfmUsername}\`\n` : '') +
                          (rymUsername ? `- RYM: \`${rymUsername}\`` : '')
             },

@@ -22,6 +22,8 @@ import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
 
+const BANNED_GUILD_ID = '289673579908431872'; // heehee
+
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
 
@@ -32,6 +34,16 @@ export async function POST(req: Request) {
     if (interaction.type === InteractionType.Ping) {
         return NextResponse.json({ type: InteractionResponseType.Pong });
     }
+
+    if (interaction.guild_id === BANNED_GUILD_ID) {
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: "🛑🦇 ZORPHEUS has been decommissioned from SOUND AND VISIONE and will no longer respond to commands here.. LONG! LIVE! GOONDOLIN! 🛑🦇 \n-# If you're reading this, I'm working on ratings for the bot for a new server, dm me if you're interested ;;;)) Love you all <3",
+                flags: 64,
+            },
+        });
+    }    
 
     if (interaction.type === InteractionType.ApplicationCommand) {
         const { name } = interaction.data;

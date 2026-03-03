@@ -37,6 +37,7 @@ async function isValidImageUrl(url: string | null | undefined, timeout = 2500): 
         const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
         clearTimeout(timeoutId);
         return response.ok;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
         clearTimeout(timeoutId);
         return false;

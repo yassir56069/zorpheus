@@ -32,15 +32,27 @@ const commands = [
       },
     ],
   },
-    {
-    name: 'register',
-    description: 'Register your Last.fm username with the bot.',
+{
+    name: 'join',
+    description: 'Create your profile to use the bot, log Last.fm/RYM, and rate albums!',
     options: [
       {
-        name: 'username',
-        description: 'Your Last.fm username.',
+        name: 'lastfm_username',
+        description: 'Your Last.fm username (required).',
         type: 3, // STRING
         required: true,
+      },
+      {
+        name: 'rym_username',
+        description: 'Your Rate Your Music username (optional).',
+        type: 3, // STRING
+        required: false,
+      },
+      {
+        name: 'display_name',
+        description: 'A custom name to show on your embeds (defaults to your Discord name).',
+        type: 3, // STRING
+        required: false,
       },
     ],
   },
@@ -198,7 +210,6 @@ const commands = [
       }
     ]
   },
-  // --- NEW COMMAND ADDED HERE ---
   {
     name: 'serverchart',
     description: 'Generates a grid of the most listened to albums for the entire server.',

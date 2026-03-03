@@ -8,7 +8,7 @@ import {
     ButtonStyle,
     APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
-import { kv } from '@vercel/kv';
+import { getUserLastFM } from '@/utils/db-utils';
 import { Vibrant } from 'node-vibrant/node';
 
 // --- NEW HELPER FUNCTION ---
@@ -158,7 +158,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     if (usernameOption) {
         lastfmUsername = usernameOption.value;
     } else {
-        lastfmUsername = await kv.get(discordUserId) as string | null;
+        lastfmUsername = await getUserLastFM(discordUserId) as string | null;
     }
 
     if (!lastfmUsername) {
@@ -322,7 +322,7 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
     });
 
     const discordUserId = interaction.member!.user.id;
-    const lastfmUsername = await kv.get(discordUserId) as string | null;
+    const lastfmUsername = await getUserLastFM(discordUserId) as string | null;
     const apiKey = process.env.LASTFM_API_KEY;
     const webhookUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
 

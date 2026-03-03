@@ -10,7 +10,6 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 
 // Import command handlers
 import { handlePing } from '@/app/commands/ping';
-import { handleRegister } from '@/app/commands/register';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
@@ -21,6 +20,7 @@ import { handleProfile } from '@/app/commands/profile';
 import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
+import { handleJoin } from '@/app/commands/join';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -52,8 +52,8 @@ export async function POST(req: Request) {
         switch (name) {
             case 'ping':
                 return handlePing(interaction as APIChatInputApplicationCommandInteraction);
-            case 'register':
-                return handleRegister(interaction as APIChatInputApplicationCommandInteraction);
+            case 'join': 
+                return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
             case 'fm':

@@ -39,7 +39,7 @@ export async function POST(req: Request) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
-                content: "🛑🦇 ZORPHEUS has been decommissioned from SOUND AND VISIONE and will no longer respond to commands here.. LONG! LIVE! GOONDOLIN! 🛑🦇 \n-# If you're reading this, I'm working on ratings for the bot for a new server, dm me if you're interested ;;;)) Love you all <3",
+                content: "🛑🦇**ZORPHEUS has been decommissioned from SOUND AND VISIONE and will no longer respond to commands here.. LONG! LIVE! GOONDOLIN!** 🛑🦇 \n-# If you're reading this, I'm working on ratings for the bot for a new server, dm me if you're interested ;;;)) Love you all <3\n-# Sincerely, the Zorpheus Lifeblood 🩸🩸",
                 flags: 64,
             },
         });

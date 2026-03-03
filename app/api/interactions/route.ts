@@ -22,7 +22,7 @@ import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
 
-const BANNED_GUILD_ID = '289673579908431872'; // heehee
+const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
 export async function POST(req: Request) {
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);

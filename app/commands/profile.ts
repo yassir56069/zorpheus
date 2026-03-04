@@ -1,171 +1,151 @@
 // app/commands/profile.ts
 import { NextResponse } from 'next/server';
 import {
-    InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
-    APIEmbedField,
+    APIMessageComponentButtonInteraction,
+    InteractionResponseType,
+    ComponentType,
+    ButtonStyle
 } from 'discord-api-types/v10';
-import Parser from 'rss-parser';
+import { getUserRatingDistribution, getUserRecentRatings } from '@/utils/database/ratings-service';
+import { getUserDisplayName } from '@/utils/database/user-service';
 
-const parser = new Parser();
+// --- Helper UI Functions ---
 
-/**
- * Converts a rating score string (e.g., "3.5") into a star representation.
- * @param {string} scoreString - The rating score.
- * @returns {string} - The formatted string of stars, e.g., "[ ★ ★ ★ ½ ]".
- */
-function generateStarRating(scoreString?: string): string {
-  if (!scoreString) return '';
-  const score = parseFloat(scoreString);
-  if (isNaN(score)) return '';
+function generateRatingChart(distribution: Array<{ score: number, count: number }>) {
+    const counts = new Map(distribution.map(d => [d.score, d.count]));
+    const maxCount = Math.max(...distribution.map(d => d.count), 1);
+    const MAX_BAR_LENGTH = 15; // Width of the graph
 
-  const fullStar = '★';
-  const halfStar = '½';
-  let stars = '';
+    let chartText = '```text\n';
+    for (let score = 10; score >= 1; score--) {
+        const count = counts.get(score) || 0;
+        
+        // Calculate Bar
+        const barLength = Math.round((count / maxCount) * MAX_BAR_LENGTH);
+        const bar = count > 0 ? '█'.repeat(barLength) || '▏' : ''; // '▏' ensures a 1-pixel bar if > 0 but very small
+        
+        // Calculate Stars
+        const fullStars = Math.floor(score / 2);
+        const halfStar = score % 2 !== 0;
+        const stars = '★'.repeat(fullStars) + (halfStar ? '½' : '') + '☆'.repeat(5 - fullStars - (halfStar ? 1 : 0));
 
-  const fullStars = Math.floor(score);
-  const hasHalfStar = (score % 1) !== 0;
+        // Format and align layout
+        const paddedCount = count.toString().padStart(4, ' ');
+        const paddedBar = bar.padEnd(MAX_BAR_LENGTH, ' ');
 
-  for (let i = 0; i < fullStars; i++) {
-    stars += fullStar + ' ';
-  }
-
-  if (hasHalfStar) {
-    stars += halfStar;
-  }
-  
-  return `[ ${stars.trim()} ]`;
-}
-
-/**
- * Formats a date string into "DD Month YYYY".
- * @param {string} dateString - The date string from the RSS feed.
- * @returns {string} - The formatted date, e.g., "09 August 2025".
- */
-function formatDate(dateString?: string): string {
-    if (!dateString) return '';
-    try {
-        const date = new Date(dateString);
-        const day = date.toLocaleDateString('en-GB', { day: '2-digit' });
-        const month = date.toLocaleDateString('en-GB', { month: 'long' });
-        const year = date.toLocaleDateString('en-GB', { year: 'numeric' });
-        return `${day} ${month} ${year}`;
-    } catch (e) {
-        return '';
+        chartText += `${paddedCount} ${paddedBar} ${stars}\n`;
     }
+    chartText += '```';
+    return chartText;
 }
 
+async function buildProfilePayload(userId: string, activeTab: 'overview' | 'recent') {
+    // Attempt to get users custom display name, fallback to a default (we don't have the discord user object easily here if clicked by someone else)
+    const displayName = await getUserDisplayName(userId) || `<@${userId}>`;
+
+    const embed = {
+        title: ``,
+        description: ``,
+        color: 0x2b2d31, // Discord dark theme color
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fields: [] as any[]
+    };
+
+    if (activeTab === 'overview') {
+        const dist = await getUserRatingDistribution(userId);
+        const totalRatings = dist.reduce((acc, curr) => acc + curr.count, 0);
+        
+        const avgCalculation = totalRatings > 0 
+            ? (dist.reduce((acc, curr) => acc + (curr.score * curr.count), 0) / totalRatings / 2).toFixed(2)
+            : '0.00';
+
+        embed.title = `📊 Rating Overview`;
+        embed.description = `**Total Ratings:** ${totalRatings}\n**Average Rating:** ${avgCalculation} ★\n\n` + 
+                            (totalRatings > 0 ? generateRatingChart(dist) : "*User has no ratings yet.*");
+    } 
+    else if (activeTab === 'recent') {
+        const recent = await getUserRecentRatings(userId, 10); // get last 10
+        
+        embed.title = `🕒 Recent Ratings`;
+        embed.description = recent.length > 0 
+            ? recent.map(r => `**${r.score / 2}** ★ \`${r.artistName} - ${r.albumName}\``).join('\n')
+            : "*User has no recent ratings.*";
+    }
+
+    const components = [{
+        type: ComponentType.ActionRow,
+        components: [
+            {
+                type: ComponentType.Button,
+                style: activeTab === 'overview' ? ButtonStyle.Primary : ButtonStyle.Secondary,
+                label: 'Overview',
+                custom_id: `profile_overview_${userId}`,
+                disabled: activeTab === 'overview' // Disable the active button
+            },
+            {
+                type: ComponentType.Button,
+                style: activeTab === 'recent' ? ButtonStyle.Primary : ButtonStyle.Secondary,
+                label: 'Recent Ratings',
+                custom_id: `profile_recent_${userId}`,
+                disabled: activeTab === 'recent'
+            }
+        ]
+    }];
+
+    return {
+        embeds: [embed],
+        components
+    };
+}
+
+
+// --- Interaction Handlers ---
 
 export async function handleProfile(interaction: APIChatInputApplicationCommandInteraction) {
-    try {
-        // 1. Get the attachment's metadata
-        const attachments = interaction.data.resolved?.attachments;
-        if (!attachments) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: '❌ Error: No attachments found in the interaction.' },
-            });
-        }
-        // eslint-disable-next-line
-        const attachmentId = (interaction.data.options?.[0] as any).value;
-        const attachment = attachments[attachmentId];
+    // Check if the command was run on a specific user, otherwise default to the invoker
+    // Assumes your slash command has an optional "user" option
+    const options = interaction.data.options;
+    
+    // @ts-expect-error - bypassing strict type checking for the option array search
+    const targetUserId = (options?.find(opt => opt.name === 'user')?.value as string) 
+                         || interaction.member?.user.id 
+                         || interaction.user?.id;
 
-        // 2. Validate the file type
-        if (!attachment.content_type?.startsWith('text/plain') && !attachment.content_type?.startsWith('application/xml') && !attachment.content_type?.startsWith('application/xhtml+xml') && !attachment.content_type?.startsWith('text/html')) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: `❌ Please upload a valid .txt, .xml, or .html file. You uploaded a file of type \`${attachment.content_type}\`.` },
-            });
-        }
-
-        // 3. Fetch and parse the file content
-        const fileUrl = attachment.url;
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: '❌ Could not fetch the attachment content from Discord.' },
-            });
-        }
-        const rssText = await response.text();
-        const feed = await parser.parseString(rssText);
-        const rymUsername = feed.title?.split('by ')[1] || 'user';
-
-        if (!feed.items || feed.items.length === 0) {
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: { content: 'The provided feed has no recent activity.' },
-            });
-        }
-        
-        // 4. Create the embed fields from the RSS items
-        const fields: APIEmbedField[] = feed.items.slice(0, 10).map(item => {
-            const { title = '', link, pubDate } = item;
-            
-            // eslint-disable-next-line
-            const description = (item as any).content || '';
-
-            let name = '';
-            let value = '';
-            const formattedDate = formatDate(pubDate);
-
-            const ratedRegex = /Rated (.*) by (.*) +(\d\.\d|\d) stars/;
-            const ratedMatch = title.match(ratedRegex);
-
-            const reviewedRegex = /Reviewed (.*) by (.*)/;
-            const reviewedMatch = title.match(reviewedRegex);
-
-            if (reviewedMatch) {
-                const [, album, artist] = reviewedMatch;
-                name = `${album} - ${artist}`;
-                
-                const reviewText = description ? description.replace(/<[^>]*>/g, '').trim() : 'Reviewed';
-                
-                value = `Review:\n\`\`\`${reviewText}\`\`\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
-
-            } else if (ratedMatch) {
-                const [, album, artist, rating] = ratedMatch;
-                name = `${album} - ${artist}`;
-
-                const starRating = generateStarRating(rating);
-                value = `Rated \`${starRating}\`\n[View RYM Page](${link})\n-# on ${formattedDate}`;
-            } else {
-                name = title;
-                value = `[View RYM Page](${link})\n-# on ${formattedDate}`;
-            }
-
-            return {
-                name: name,
-                value: value,
-                inline: false,
-            };
-        });
-
-        // 5. Construct the final embed with the new fields
-        const embed = {
-            title: `Recent activity for ${rymUsername}`,
-            url: `https://rateyourmusic.com/~${rymUsername}`,
-            color: 0x8A2BE2,
-            fields: fields,
-             footer: {
-                text: `Fetched from a user-provided RSS file`,
-                icon_url: 'https://e.snmc.io/3.0/img/logo/sonemic-32.png',
-            },
-            timestamp: new Date().toISOString(),
-        };
-
+    // 1. Add this check to guarantee to TypeScript that targetUserId is a string
+    if (!targetUserId) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
-            data: {
-                embeds: [embed],
-            },
-        });
-
-    } catch (error) {
-        console.error('Failed to parse the attached file:', error);
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: '❌ Failed to parse the file. Please ensure it is the unmodified RSS feed from Rate Your Music.' },
+            data: { content: "Error: Could not determine the user.", flags: 64 }
         });
     }
+    const payload = await buildProfilePayload(targetUserId, 'overview');
+
+    return NextResponse.json({
+        type: InteractionResponseType.ChannelMessageWithSource,
+        data: {
+            content: `Profile for <@${targetUserId}>`,
+            embeds: payload.embeds,
+            components: payload.components
+        }
+    });
+}
+
+export async function handleProfileButtonInteraction(interaction: APIMessageComponentButtonInteraction) {
+    const customId = interaction.data.custom_id;
+    
+    // customId format: "profile_{tab}_{userId}"
+    const parts = customId.split('_');
+    const tab = parts[1] as 'overview' | 'recent';
+    const targetUserId = parts[2];
+
+    const payload = await buildProfilePayload(targetUserId, tab);
+
+    return NextResponse.json({
+        type: InteractionResponseType.UpdateMessage, // Edits the existing message!
+        data: {
+            embeds: payload.embeds,
+            components: payload.components
+        }
+    });
 }

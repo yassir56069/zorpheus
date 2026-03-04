@@ -18,7 +18,7 @@ import { handleImport } from '@/app/commands/import';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
-import { handleProfile } from '@/app/commands/profile';
+import { handleProfile, handleProfileButtonInteraction } from '@/app/commands/profile';
 import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
@@ -138,6 +138,13 @@ export async function POST(req: Request) {
         //#region Buttons
         if (componentInteraction.data.component_type === ComponentType.Button) {
             const buttonInteraction = componentInteraction as APIMessageComponentButtonInteraction;
+
+        //#region Profile Pagination
+        if (customId.startsWith('profile_')) {
+            return handleProfileButtonInteraction(buttonInteraction);
+        }
+        //#endregion
+
 
         //#region  Resync
         if (customId.startsWith('resync_fm_')) {

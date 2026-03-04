@@ -10,6 +10,7 @@ import {
 } from 'discord-api-types/v10';
 import { getUserLastFM } from '@/utils/database/user-service';
 import { Vibrant } from 'node-vibrant/node';
+import { syncAlbumCover } from '@/utils/database/album-service';
 
 // --- NEW HELPER FUNCTION ---
 
@@ -240,6 +241,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             return new NextResponse(null, { status: 204 });
         }
 
+        syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
         let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';
@@ -390,7 +392,8 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
             // --- CRITICAL FIX: Return a NextResponse to prevent crashing ---
             return new NextResponse(null, { status: 204 });
         }
-
+        
+        syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
         let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';

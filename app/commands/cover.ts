@@ -11,6 +11,7 @@ import {
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
+import { syncAlbumCover } from '@/utils/database/album-service';
 
 // --- Types ---
 
@@ -273,6 +274,11 @@ async function processCoverRequest(
         });
         return;
     }
+
+    const bestCover = covers[0].url;
+    const userId = interaction.member!.user.id;
+    // We don't await this to keep the bot response snappy (fire and forget)
+    syncAlbumCover(artist, albumName, bestCover, userId); 
 
     // 2. Prepare Session Data
     const sessionId = interaction.id; // Use interaction ID as unique session key

@@ -64,6 +64,29 @@ export async function getOrCreateAlbum(albumData: {
 }
 
 /**
+ * Ensures an album exists and has a coverArtUrl.
+ * If the album exists but has no cover, it updates it.
+ */
+export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string) {
+    // We use the same slug generation logic to ensure consistency
+    const slug = generateSlug(artistName, albumName);
+
+    try {
+        await db.execute({
+            sql: `
+                INSERT INTO albums (name, artistName, slug, coverArtUrl, fromUser, createdAt)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(slug) DO UPDATE SET 
+                    coverArtUrl = COALESCE(albums.coverArtUrl, excluded.coverArtUrl)
+            `,
+            args: [albumName, artistName, slug, coverUrl, userId]
+        });
+    } catch (e) {
+        console.error("Error syncing album cover:", e);
+    }
+}
+
+/**
  * Gets an album by its slug, dynamically calculating its average score, 
  * rating count, and overall ranking among all albums.
  */

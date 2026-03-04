@@ -212,7 +212,7 @@ const commands = [
   },
   //#endregion
 
-  //#region profile
+  //#region Profile (TO BE UPDATED)
   {
     name: 'profile',
     description: 'Displays a Rate Your Music Profile from an RSS Feed File.',

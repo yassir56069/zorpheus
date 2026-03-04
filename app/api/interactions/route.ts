@@ -15,6 +15,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRate } from '@/app/commands/rate';
 import { handleImport } from '@/app/commands/import';
+import { handleAlbum, handleAlbumSearch, renderAlbumEmbed } from '@/app/commands/album';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
@@ -26,8 +27,8 @@ import { handleJoin } from '@/app/commands/join';
 import { handleDev } from '@/app/sandbox/dev';
 
 // database
-import { getOrCreateAlbum, upsertRating } from '@/utils/database/ratings-service';
-
+import { upsertRating } from '@/utils/database/ratings-service';
+import { getOrCreateAlbum } from '@/utils/database/album-service';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -66,6 +67,10 @@ export async function POST(req: Request) {
                 return handleRate(interaction as APIChatInputApplicationCommandInteraction);
             case 'import': 
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
+            case 'album':
+                return handleAlbum(interaction as APIChatInputApplicationCommandInteraction);
+            case 'album-search':
+                return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction);
             case 'join': 
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':
@@ -131,6 +136,13 @@ export async function POST(req: Request) {
                     }
                 });
             }
+            //#endregion
+
+            //#region Album Search
+            if (customId === 'album_search_select') {
+                const selectedSlug = selectInteraction.data.values[0];
+                return await renderAlbumEmbed(selectedSlug, true); // true sets InteractionResponseType.UpdateMessage
+            } 
             //#endregion
         }
         //#endregion

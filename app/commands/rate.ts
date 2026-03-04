@@ -6,7 +6,8 @@ import {
     ComponentType,
 } from 'discord-api-types/v10';
 import { getUserLastFM } from '@/utils/database/user-service';
-import { getOrCreateAlbum, upsertRating } from '@/utils/database/ratings-service';
+import { upsertRating } from '@/utils/database/ratings-service';
+import { getOrCreateAlbum } from '@/utils/database/album-service';
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
 

@@ -39,6 +39,36 @@ const commands = [
   },
   //#endregion
 
+  //#region Album Search
+  {
+    name: 'album-search',
+    description: ' 🔎 search for an album on the bot\'s database',
+    options: [
+      {
+        name: 'searchterm',
+        description: 'Try the album name, or the artist name and album name!',
+        type: 3, // STRING
+        required: true,
+      },
+    ],
+  },
+  //#endregion
+
+  //#region Album 
+  {
+    name: 'album',
+    description: 'Retrieve an album by it\'s slug',
+    options: [
+      {
+        name: 'slug-value',
+        description: 'Exact slug format (artistname-albumname). No spaces. Try /album-search if unsure.',
+        type: 3, // STRING
+        required: true,
+      },
+    ],
+  },
+  //#endregion
+
   //#region Join
   {
     name: 'join',
@@ -215,15 +245,7 @@ const commands = [
   //#region Profile (TO BE UPDATED)
   {
     name: 'profile',
-    description: 'Displays a Rate Your Music Profile from an RSS Feed File.',
-    options: [
-      {
-        name: 'feed',
-        description: 'The .txt or .xml file containing the RSS feed from Rate Your Music.',
-        type: 11, // STRING
-        required: true,
-      },
-    ],
+    description: 'Displays your profile on Zorpheus 🦇🩸.',
   },
   //#endregion
 

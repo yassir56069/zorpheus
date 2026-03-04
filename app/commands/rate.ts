@@ -43,7 +43,6 @@ const starsOption = options.find(
     const rawArtistName = track.artist['#text'];
 
     // --- NEW: Fetch canonical metadata ---
-    // This resolves "Bowie [Space Oddity]" vs "Bowie" and gets the year
     const albumInfoRes = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key=${LASTFM_API_KEY}&artist=${encodeURIComponent(rawArtistName)}&album=${encodeURIComponent(rawAlbumName)}&format=json`);
     const albumInfoData = await albumInfoRes.json();
     
@@ -55,10 +54,28 @@ const starsOption = options.find(
 
     let releaseYear = null;
     const dateStr = album?.releasedate?.trim();
-    if (dateStr) {
+    if (dateStr && dateStr !== "0" && dateStr !== "") {
         const match = dateStr.match(/\d{4}/);
         if (match) releaseYear = match[0];
     }
+
+    if (!releaseYear && album?.wiki?.summary) {
+    const wikiMatch = album.wiki.summary.match(/\b(19|20)\d{2}\b/);
+    if (wikiMatch) releaseYear = wikiMatch[0];
+    }
+
+    // 3. Fallback: Check tags (Users often tag with the year)
+    if (!releaseYear && album?.tags?.tag) {
+        const tags = Array.isArray(album.tags.tag) ? album.tags.tag : [album.tags.tag];
+        for (const t of tags) {
+            const tagMatch = t.name.match(/^(19|20)\d{2}$/);
+            if (tagMatch) {
+                releaseYear = tagMatch[0];
+                break;
+            }
+        }
+    }
+
 
     // 3. Handle Instant Rating
     if (starsOption) {

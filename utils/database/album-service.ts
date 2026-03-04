@@ -30,20 +30,13 @@ export async function getOrCreateAlbum(albumData: {
     releaseYear?: string | null;
     userId: string;
 }) {
-    // Generate slug with the year we just fetched
+    // 1. Generate the slug using the year if available
     const slug = generateSlug(albumData.artistName, albumData.name, albumData.releaseYear);
     
     try {
-        // 1. Try to find by MBID first (Highest accuracy)
-        if (albumData.mbid) {
-            const existingByMbid = await db.execute({
-                sql: `SELECT * FROM albums WHERE mbid = ?`,
-                args: [albumData.mbid]
-            });
-            if (existingByMbid.rows.length > 0) return existingByMbid.rows[0];
-        }
-
-        // 2. Insert with the new year-aware slug
+        // 2. Perform a "Smart Upsert"
+        // We use the slug as the unique identifier. 
+        // If the slug already exists, we just update the MBID or Year if they were missing.
         const result = await db.execute({
             sql: `
                 INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, createdAt)
@@ -62,6 +55,7 @@ export async function getOrCreateAlbum(albumData: {
                 albumData.userId
             ]
         });
+
         return result.rows[0];
     } catch (e) {
         console.error("Error in getOrCreateAlbum:", e);
@@ -162,9 +156,11 @@ export function generateSlug(artistName: string, albumName: string, releaseYear?
     const artistPart = normalizeString(artistName);
     const albumPart = normalizeString(getBaseName(albumName));
 
-    // If year is present, append it. If not, the slug remains as is.
-    // This allows Bowie (1967) and Bowie (1969) to be distinct.
-    const yearPart = (releaseYear && releaseYear !== "0") ? `-${releaseYear}` : '';
+    // Logic: If we have a year, use it. 
+    // This creates 'davidbowie-davidbowie-1967' and 'davidbowie-davidbowie-1969'
+    const yearPart = (releaseYear && releaseYear !== "0" && releaseYear.length === 4) 
+        ? `-${releaseYear}` 
+        : '';
     
     return `${artistPart}-${albumPart}${yearPart}`;
 }

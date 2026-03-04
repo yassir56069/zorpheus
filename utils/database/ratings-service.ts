@@ -68,3 +68,43 @@ export async function batchImportRatings(userId: string, records: Array<{
         await db.batch(statements, "write");
     }
 }
+
+//#region Profile Display
+
+/**
+ * Gets the distribution of scores (0-10) for a specific user.
+ */
+export async function getUserRatingDistribution(userId: string) {
+    const result = await db.execute({
+        sql: `
+            SELECT score, COUNT(*) as count
+            FROM ratings
+            WHERE userId = ?
+            GROUP BY score
+            ORDER BY score DESC
+        `,
+        args: [userId]
+    });
+    return result.rows as unknown as Array<{ score: number, count: number }>;
+}
+
+/**
+ * Gets the most recent ratings for a specific user.
+ */
+export async function getUserRecentRatings(userId: string, limit: number = 9) {
+    const result = await db.execute({
+        sql: `
+            SELECT a.name as albumName, a.artistName, r.score, r.updatedAt
+            FROM ratings r
+            JOIN albums a ON r.albumId = a.slug
+            WHERE r.userId = ?
+            ORDER BY r.updatedAt DESC
+            LIMIT ?
+        `,
+        args: [userId, limit]
+    });
+    return result.rows as unknown as Array<{ albumName: string, artistName: string, score: number, updatedAt: string }>;
+}
+
+//#endregion
+

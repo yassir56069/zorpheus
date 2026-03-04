@@ -8,7 +8,7 @@ import {
     ButtonStyle,
     APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
-import { getUserLastFM } from '@/utils/db-utils';
+import { getUserLastFM } from '@/utils/database/user-service';
 import { Vibrant } from 'node-vibrant/node';
 
 // --- NEW HELPER FUNCTION ---

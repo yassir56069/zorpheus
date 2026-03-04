@@ -10,10 +10,15 @@ if (!token || !applicationId) {
 }
 
 const commands = [
+
+  //#region Ping
   {
     name: 'ping',
     description: 'Replies with Pong! to test latency.',
   },
+  //#endregion
+
+  //#region Fm
   {
     name: 'fm',
     description: 'Displays your current scrobbled track.',
@@ -32,7 +37,10 @@ const commands = [
       },
     ],
   },
-{
+  //#endregion
+
+  //#region Join
+  {
     name: 'join',
     description: 'Create your profile to use the bot, log Last.fm/RYM, and rate albums!',
     options: [
@@ -56,30 +64,9 @@ const commands = [
       },
     ],
   },
-    {
-    "name": "dev",
-    "description": "Developer-only commands for testing.",
-    "options": [
-        {
-        "name": "key",
-        "description": "The specific developer command to run",
-        "type": 3, // String type
-        "required": true
-        },
-        {
-        "name": "value",
-        "description": "Optional value for the test command.",
-        "type": 3, // String type
-        "required": false
-        }
-    ]
-    },
+  //#endregion
 
-
-  {
-    name: 'countdown',
-    description: 'Starts a 5-second countdown.',
-  },
+  //#region Cover
   {
     name: 'cover',
     description: 'Displays album art. Searches for an album or shows your last played track.',
@@ -98,6 +85,9 @@ const commands = [
       },
     ],
   },
+  //#endregion
+
+  //#region rc
     {
     name: 'rc',
     description: 'Raw Cover - displays the raw album art for a track or search.',
@@ -110,18 +100,36 @@ const commands = [
       },
     ],
   },
+  //#endregion
+
+  //#region Rate
   {
-    name: 'profile',
-    description: 'Displays a Rate Your Music Profile from an RSS Feed File.',
-    options: [
-      {
-        name: 'feed',
-        description: 'The .txt or .xml file containing the RSS feed from Rate Your Music.',
-        type: 11, // STRING
-        required: true,
-      },
-    ],
+      name: 'rate',
+      description: 'Rate the album you are currently listening to (or specify a score).',
+      options: [
+          {
+              name: 'stars',
+              description: 'The rating (1-5 stars, 0.5 increments).',
+              type: 10, // NUMBER
+              required: false,
+              choices: [
+                { name: '[5.0] ★★★★★', value: 5 },
+                { name: '[4.5] ★★★★½', value: 4.5 },
+                { name: '[4.0] ★★★★', value: 4 },
+                { name: '[3.5] ★★★½', value: 3.5 },
+                { name: '[3.0] ★★★', value: 3 },
+                { name: '[2.5] ★★½', value: 2.5 },
+                { name: '[2.0] ★★', value: 2 },
+                { name: '[1.5] ★½', value: 1.5 },
+                { name: '[1.0] ★', value: 1 },
+                { name: '[0.5] ½', value: 0.5 },
+              ]
+          }
+      ]
   },
+  //#endregion
+
+  //#region Chart
   {
     name: 'chart',
     description: 'Generates a grid of your most listened to albums.',
@@ -186,30 +194,24 @@ const commands = [
       }
     ]
   },
+  //#endregion
+
+  //#region profile
   {
-    name: 'league',
-    description: "Server artist league commands.",
+    name: 'profile',
+    description: 'Displays a Rate Your Music Profile from an RSS Feed File.',
     options: [
       {
-        name: 'find',
-        description: "Finds tracks in a Spotify playlist by the server's top artists.",
-        type: 1, // This type indicates a SUB_COMMAND
-        options: [
-          {
-            name: 'playlist',
-            description: 'The full URL of the Spotify playlist.',
-            type: 3, // STRING
-            required: true,
-          },
-        ]
+        name: 'feed',
+        description: 'The .txt or .xml file containing the RSS feed from Rate Your Music.',
+        type: 11, // STRING
+        required: true,
       },
-      {
-        name: 'banned',
-        description: "Displays the top 30 'banned' artists for the server league.",
-        type: 1, // This type indicates a SUB_COMMAND
-      }
-    ]
+    ],
   },
+  //#endregion
+
+  //#region Server Chart
   {
     name: 'serverchart',
     description: 'Generates a grid of the most listened to albums for the entire server.',
@@ -268,6 +270,57 @@ const commands = [
       }
     ]
   },
+
+  //#endregion
+
+  //#region  DEPRECATED / UNUSED
+  {
+    name: 'league',
+    description: "Server artist league commands.",
+    options: [
+      {
+        name: 'find',
+        description: "Finds tracks in a Spotify playlist by the server's top artists.",
+        type: 1, // This type indicates a SUB_COMMAND
+        options: [
+          {
+            name: 'playlist',
+            description: 'The full URL of the Spotify playlist.',
+            type: 3, // STRING
+            required: true,
+          },
+        ]
+      },
+      {
+        name: 'banned',
+        description: "Displays the top 30 'banned' artists for the server league.",
+        type: 1, // This type indicates a SUB_COMMAND
+      }
+    ]
+  },
+  {
+  "name": "dev",
+  "description": "Developer-only commands for testing.",
+  "options": [
+      {
+      "name": "key",
+      "description": "The specific developer command to run",
+      "type": 3, // String type
+      "required": true
+      },
+      {
+      "name": "value",
+      "description": "Optional value for the test command.",
+      "type": 3, // String type
+      "required": false
+      }
+  ]
+  },
+  {
+    name: 'countdown',
+    description: 'Starts a 5-second countdown.',
+  },
+  //#endregion
 ];
 
 const url = `https://discord.com/api/v10/applications/${applicationId}/commands`;

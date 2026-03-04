@@ -5,6 +5,9 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIMessageComponentButtonInteraction,
+    APIMessageComponentSelectMenuInteraction,
+    APIMessageComponentInteraction,
+    ComponentType,
 } from 'discord-api-types/v10';
 import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 
@@ -21,10 +24,13 @@ import { handleChart, handleServerChart } from '@/app/commands/chart';
 import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
 import { handleJoin } from '@/app/commands/join';
+import { getOrCreateAlbum, upsertRating } from '@/utils/database/ratings-service';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
 export async function POST(req: Request) {
+
+    //#region  Validations
     const { isValid, interaction } = await verifyDiscordRequest(req, process.env.DISCORD_PUBLIC_KEY!);
 
     if (!isValid || !interaction) {
@@ -44,11 +50,12 @@ export async function POST(req: Request) {
             },
         });
     }    
+    //#endregion
 
+    //#region  Commands
     if (interaction.type === InteractionType.ApplicationCommand) {
         const { name } = interaction.data;
 
-        // Command router
         switch (name) {
             case 'ping':
                 return handlePing(interaction as APIChatInputApplicationCommandInteraction);
@@ -77,28 +84,78 @@ export async function POST(req: Request) {
                 return new NextResponse('Unknown command', { status: 400 });
         }
     }
+    //#endregion
 
+    //#region  Interactions
     if (interaction.type === InteractionType.MessageComponent) {
-        const componentInteraction = interaction as APIMessageComponentButtonInteraction;
+        const componentInteraction = interaction as APIMessageComponentInteraction;
         const customId = componentInteraction.data.custom_id;
 
-        // --- NEW: Route fm button interactions ---
+        //#region Menus
+        if (componentInteraction.data.component_type === ComponentType.StringSelect) {
+            const selectInteraction = componentInteraction as APIMessageComponentSelectMenuInteraction;
+
+            //#region Rating
+            if (customId.startsWith('rate_select_')) {
+                const userIdFromId = customId.replace('rate_select_', '');
+                const actingUserId = selectInteraction.member?.user.id || selectInteraction.user?.id;
+
+                if (actingUserId !== userIdFromId) {
+                    return NextResponse.json({
+                        type: InteractionResponseType.ChannelMessageWithSource,
+                        data: { content: "This menu isn't for you!", flags: 64 }
+                    });
+                }
+
+                const score = parseInt(selectInteraction.data.values[0]);
+                const embed = selectInteraction.message.embeds[0];
+                const description = embed.description || "";
+                const [artistName, albumName] = description.split(' - ').map(s => s.replace(/[\*\?]/g, '').trim());
+
+                const album = await getOrCreateAlbum({ name: albumName, artistName, userId: actingUserId! });
+                await upsertRating(actingUserId!, album!.slug as string, score);
+
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
+                        content: `✅ Successfully rated **${albumName}** by **${artistName}**: **${score / 2}** stars.`,
+                        embeds: [],
+                        components: []
+                    }
+                });
+            }
+            //#endregion
+        }
+        //#endregion
+
+        //#region Buttons
+        if (componentInteraction.data.component_type === ComponentType.Button) {
+            const buttonInteraction = componentInteraction as APIMessageComponentButtonInteraction;
+
+        //#region  Resync
         if (customId.startsWith('resync_fm_')) {
-            return handleFmResync(componentInteraction);
+            return handleFmResync(buttonInteraction);
         }
+        //#endregion
 
-        // --- NEW: Route cover buttons ---
+        //#region Cover
         if (customId.startsWith('cov_')) {
-            return handleCoverButtonInteraction(componentInteraction);
+            return handleCoverButtonInteraction(buttonInteraction);
         }
+        //#endregion
 
-        // Existing handler for countdown buttons
+        //#region  Counter
         if (customId.startsWith('countdown_')) { // Example prefix for your countdown buttons
-             return handleCountdownInteraction(componentInteraction);
+            return handleCountdownInteraction(buttonInteraction);
         }
+        //#endregion
 
+        }
+        //#endregion
         return new NextResponse('Unhandled component interaction', { status: 400 });
     }
+
+    //#endregion
 
     return new NextResponse('Unhandled interaction type', { status: 404 });
 }

@@ -1,15 +1,5 @@
 import { db } from '@/utils/db'; // Your Turso client from the previous step
-
-
-export interface DbUser {
-    id: number;
-    userDiscordId: string;
-    userDisplayName: string;
-    userLastFMUserName: string | null;
-    userRYMUserName: string | null;
-    createdAt: string;
-    ModifiedAt: string | null;
-}
+import { DbUser } from '@/data/models/dbuser';
 
 /**
  * Fetches the entire user profile from the database.

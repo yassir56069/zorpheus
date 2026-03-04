@@ -39,15 +39,37 @@ const starsOption = options.find(
         });
     }
 
-    const albumName = track.album['#text'];
-    const artistName = track.artist['#text'];
-    const mbid = track.album.mbid;
-    const albumArt = track.image[3]['#text'] || track.image[2]['#text'];
+    const rawAlbumName = track.album['#text'];
+    const rawArtistName = track.artist['#text'];
+
+    // --- NEW: Fetch canonical metadata ---
+    // This resolves "Bowie [Space Oddity]" vs "Bowie" and gets the year
+    const albumInfoRes = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key=${LASTFM_API_KEY}&artist=${encodeURIComponent(rawArtistName)}&album=${encodeURIComponent(rawAlbumName)}&format=json`);
+    const albumInfoData = await albumInfoRes.json();
+    
+    const album = albumInfoData.album;
+    const albumName = album?.name || rawAlbumName;
+    const artistName = album?.artist || rawArtistName;
+    const mbid = album?.mbid || track.album.mbid || null;
+    const albumArt = album?.image?.[3]['#text'] || track.image[3]['#text'];
+
+    let releaseYear = null;
+    const dateStr = album?.releasedate?.trim();
+    if (dateStr) {
+        const match = dateStr.match(/\d{4}/);
+        if (match) releaseYear = match[0];
+    }
 
     // 3. Handle Instant Rating
     if (starsOption) {
         const score = (starsOption.value as number);
-        const album = await getOrCreateAlbum({ name: albumName, artistName, mbid, userId: discordUserId });
+        const album = await getOrCreateAlbum({ 
+            name: albumName, 
+            artistName, 
+            mbid, 
+            releaseYear, 
+            userId: discordUserId 
+        });
         
         // Note: Using slug as albumId reference in ratings table as requested, 
         // but often database IDs are safer. Using slug here to match your logic.

@@ -21,6 +21,8 @@ export interface UserRating {
 /**
  * Gets or creates an album in the database.
  */
+// album-service.ts
+
 export async function getOrCreateAlbum(albumData: {
     name: string;
     artistName: string;
@@ -28,15 +30,26 @@ export async function getOrCreateAlbum(albumData: {
     releaseYear?: string | null;
     userId: string;
 }) {
-    const slug = generateSlug(albumData.artistName, albumData.name);
+    // Generate slug with the year we just fetched
+    const slug = generateSlug(albumData.artistName, albumData.name, albumData.releaseYear);
     
     try {
+        // 1. Try to find by MBID first (Highest accuracy)
+        if (albumData.mbid) {
+            const existingByMbid = await db.execute({
+                sql: `SELECT * FROM albums WHERE mbid = ?`,
+                args: [albumData.mbid]
+            });
+            if (existingByMbid.rows.length > 0) return existingByMbid.rows[0];
+        }
+
+        // 2. Insert with the new year-aware slug
         const result = await db.execute({
             sql: `
                 INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, createdAt)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(slug) DO UPDATE SET 
-                    name = name,
+                    mbid = COALESCE(albums.mbid, excluded.mbid),
                     releaseYear = COALESCE(albums.releaseYear, excluded.releaseYear)
                 RETURNING *
             `,
@@ -136,20 +149,23 @@ function normalizeString(str: string): string {
 }
 
 function getBaseName(albumName: string): string {
+    // Only strip brackets/parens if they contain common "junk" words
     const base = albumName
-        .replace(/\s*[\(\[].*?remaster.*?[\)\]]/gi, '')
-        .replace(/\s*-.*?remaster.*/gi, '')
-        .replace(/\s*[\(\[].*?[\)\]]/g, '')
-        .replace(/\s*-.*$/, '')
+        .replace(/\s*[\(\[].*?(remaster|edition|deluxe|version|anniversary|expanded).*?[\)\]]/gi, '')
+        .replace(/\s*-.*?(remaster|edition|deluxe|version|anniversary|expanded).*$/gi, '')
         .trim();
 
     return base === '' ? albumName : base;
 }
 
-export function generateSlug(artistName: string, albumName: string): string {
+export function generateSlug(artistName: string, albumName: string, releaseYear?: string | null): string {
     const artistPart = normalizeString(artistName);
     const albumPart = normalizeString(getBaseName(albumName));
-    return `${artistPart}-${albumPart}`;
-}
 
+    // If year is present, append it. If not, the slug remains as is.
+    // This allows Bowie (1967) and Bowie (1969) to be distinct.
+    const yearPart = (releaseYear && releaseYear !== "0") ? `-${releaseYear}` : '';
+    
+    return `${artistPart}-${albumPart}${yearPart}`;
+}
 //#endregion

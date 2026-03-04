@@ -27,7 +27,7 @@ export async function upsertRating(userId: string, albumId: string, score: numbe
 export async function batchImportRatings(userId: string, records: Array<{
     artistName: string, 
     albumName: string, 
-    releaseYear: string, 
+    releaseYear: string | null, // Changed to allow null
     score: number
 }>) {
     const BATCH_SIZE = 100;
@@ -38,9 +38,9 @@ export async function batchImportRatings(userId: string, records: Array<{
         const statements: any[] = [];
         
         for (const record of chunk) {
-            const slug = generateSlug(record.artistName, record.albumName);
+            // This now generates 'davidbowie-davidbowie-1967' etc.
+            const slug = generateSlug(record.artistName, record.albumName, record.releaseYear);
             
-            // 1. Album Upsert Statement
             statements.push({
                 sql: `
                     INSERT INTO albums (name, artistName, slug, releaseYear, fromUser, createdAt)
@@ -48,10 +48,9 @@ export async function batchImportRatings(userId: string, records: Array<{
                     ON CONFLICT(slug) DO UPDATE SET 
                         releaseYear = COALESCE(albums.releaseYear, excluded.releaseYear)
                 `,
-                args: [record.albumName, record.artistName, slug, record.releaseYear || null, userId]
+                args: [record.albumName, record.artistName, slug, record.releaseYear, userId]
             });
             
-            // 2. Rating Upsert Statement
             statements.push({
                 sql: `
                     INSERT INTO ratings (userId, albumId, score, createdAt, updatedAt)
@@ -64,7 +63,6 @@ export async function batchImportRatings(userId: string, records: Array<{
             });
         }
         
-        // Execute chunk simultaneously
         await db.batch(statements, "write");
     }
 }

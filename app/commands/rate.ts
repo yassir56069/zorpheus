@@ -64,7 +64,6 @@ const starsOption = options.find(
     if (wikiMatch) releaseYear = wikiMatch[0];
     }
 
-    // 3. Fallback: Check tags (Users often tag with the year)
     if (!releaseYear && album?.tags?.tag) {
         const tags = Array.isArray(album.tags.tag) ? album.tags.tag : [album.tags.tag];
         for (const t of tags) {
@@ -75,7 +74,6 @@ const starsOption = options.find(
             }
         }
     }
-
 
     // 3. Handle Instant Rating
     if (starsOption) {

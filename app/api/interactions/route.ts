@@ -14,6 +14,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 // Import command handlers
 import { handlePing } from '@/app/commands/ping';
 import { handleRate } from '@/app/commands/rate';
+import { handleImport } from '@/app/commands/import';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
@@ -25,8 +26,9 @@ import { handleJoin } from '@/app/commands/join';
 import { handleDev } from '@/app/sandbox/dev';
 
 // database
-
 import { getOrCreateAlbum, upsertRating } from '@/utils/database/ratings-service';
+
+
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
 export async function POST(req: Request) {
@@ -62,6 +64,8 @@ export async function POST(req: Request) {
                 return handlePing(interaction as APIChatInputApplicationCommandInteraction);
             case 'rate':
                 return handleRate(interaction as APIChatInputApplicationCommandInteraction);
+            case 'import': 
+                return handleImport(interaction as APIChatInputApplicationCommandInteraction);
             case 'join': 
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':

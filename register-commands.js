@@ -113,20 +113,36 @@ const commands = [
               type: 10, // NUMBER
               required: false,
               choices: [
-                { name: '[5.0] ★★★★★', value: 5 },
-                { name: '[4.5] ★★★★½', value: 4.5 },
-                { name: '[4.0] ★★★★', value: 4 },
-                { name: '[3.5] ★★★½', value: 3.5 },
-                { name: '[3.0] ★★★', value: 3 },
-                { name: '[2.5] ★★½', value: 2.5 },
-                { name: '[2.0] ★★', value: 2 },
-                { name: '[1.5] ★½', value: 1.5 },
-                { name: '[1.0] ★', value: 1 },
-                { name: '[0.5] ½', value: 0.5 },
+                { name: '[5.0] ★★★★★', value: 10},
+                { name: '[4.5] ★★★★½', value: 9 },
+                { name: '[4.0] ★★★★', value: 8},
+                { name: '[3.5] ★★★½', value: 7 },
+                { name: '[3.0] ★★★', value: 6},
+                { name: '[2.5] ★★½', value: 5 },
+                { name: '[2.0] ★★', value: 4},
+                { name: '[1.5] ★½', value: 3 },
+                { name: '[1.0] ★', value: 2 },
+                { name: '[0.5] ½', value: 1 },
               ]
           }
       ]
   },
+  //#endregion
+
+  //#region Import
+  {
+    "name": "import",
+    "description": "Import your RateYourMusic CSV ratings data",
+    "options": [
+      {
+        "name": "file",
+        "description": "Upload your RYM .csv export",
+        "type": 11,
+        "required": true
+      }
+    ]
+  },
+
   //#endregion
 
   //#region Chart

@@ -29,6 +29,7 @@ import { handleDev } from '@/app/sandbox/dev';
 // database
 import { upsertRating } from '@/utils/database/ratings-service';
 import { getOrCreateAlbum } from '@/utils/database/album-service';
+import { waitUntil } from '@vercel/functions';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -68,9 +69,9 @@ export async function POST(req: Request) {
             case 'import': 
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
             case 'album':
-                return handleAlbum(interaction as APIChatInputApplicationCommandInteraction);
+                return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':
-                return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction);
+                return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'join': 
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':
@@ -140,12 +141,13 @@ export async function POST(req: Request) {
 
             //#region Album Search
             if (customId === 'album_search_select') {
-                const selectedSlug = selectInteraction.data.values[0];
+                const selectedSlug = componentInteraction.data.values[0];
+                // renderAlbumEmbed is relatively fast, so we don't necessarily need to defer here
+                // but we can if the DB is slow.
                 const result = await renderAlbumEmbed(selectedSlug);
-                
                 return NextResponse.json({
                     type: InteractionResponseType.UpdateMessage,
-                    data: result.data // result.data contains the embed and clears the menu
+                    data: result.data
                 });
             }
         }

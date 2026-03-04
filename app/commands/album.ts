@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import {
     InteractionResponseType,
@@ -13,12 +14,22 @@ const APP_ID = process.env.DISCORD_APPLICATION_ID;
 // Helper to update the "Thinking..." message
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function editInteractionResponse(token: string, data: any) {
+    if (!APP_ID) {
+        console.error("Missing DISCORD_APPLICATION_ID in environment variables.");
+        return;
+    }
+
     const url = `https://discord.com/api/v10/webhooks/${APP_ID}/${token}/messages/@original`;
-    await fetch(url, {
+    const res = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Discord Webhook Update Failed:", errorText);
+    }
 }
 
 function getStars(score: number): string {
@@ -31,74 +42,73 @@ function getStars(score: number): string {
 /**
  * COMMAND: /album
  */
-export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     const options = interaction.data.options ?? [];
-    // Changed 'slug' to 'slug-value' to match your register-commands script
     const slugOption = options.find(opt => opt.name === 'slug-value') as APIApplicationCommandInteractionDataStringOption | undefined;
 
     if (!slugOption) return new NextResponse('Missing slug', { status: 400 });
 
-    // 1. Send Deferred Response (Immediate)
-    const response = NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
+    // 1. Kick off background work
+    waitUntil((async () => {
+        try {
+            const result = await renderAlbumEmbed(slugOption.value);
+            await editInteractionResponse(interaction.token, result.data);
+        } catch (e) {
+            console.error("Error in handleAlbum background task:", e);
+        }
+    })());
 
-    // 2. Perform heavy lifting in background
-    (async () => {
-        const result = await renderAlbumEmbed(slugOption.value);
-        await editInteractionResponse(interaction.token, result.data);
-    })();
-
-    return response;
+    // 2. Respond immediately with defer
+    return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
 /**
  * COMMAND: /album-search
  */
-export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     const options = interaction.data.options ?? [];
-    // Changed 'query' to 'searchterm' to match your register-commands script
     const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
 
     if (!queryOption) return new NextResponse('Missing query', { status: 400 });
 
-    // 1. Send Deferred Response (Immediate)
-    const response = NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
+    waitUntil((async () => {
+        try {
+            const hits = await searchAlbums(queryOption.value);
+            if (hits.length === 0) {
+                await editInteractionResponse(interaction.token, { content: `❌ No albums found matching \`${queryOption.value}\`.` });
+                return;
+            }
 
-    // 2. Perform search in background
-    (async () => {
-        const hits = await searchAlbums(queryOption.value);
-
-        if (hits.length === 0) {
             await editInteractionResponse(interaction.token, {
-                content: `❌ No albums found matching \`${queryOption.value}\`.`
-            });
-            return;
-        }
-
-        await editInteractionResponse(interaction.token, {
-            content: `🔍 Found **${hits.length}** results for \`${queryOption.value}\`.\nSelect one below to view its ratings!`,
-            components: [{
-                type: ComponentType.ActionRow,
+                content: `🔍 Found **${hits.length}** results for \`${queryOption.value}\`.\nSelect one below to view its ratings!`,
                 components: [{
-                    type: ComponentType.StringSelect,
-                    custom_id: `album_search_select`,
-                    placeholder: "Choose an album to view",
-                    options: hits.map(hit => ({
-                        label: hit.name.substring(0, 100),
-                        description: `${hit.artistName} ${hit.releaseYear ? `(${hit.releaseYear})` : ''}`.substring(0, 100),
-                        value: hit.slug
-                    }))
+                    type: ComponentType.ActionRow,
+                    components: [{
+                        type: ComponentType.StringSelect,
+                        custom_id: `album_search_select`,
+                        placeholder: "Choose an album to view",
+                        options: hits.map(hit => ({
+                            label: hit.name.substring(0, 100),
+                            description: `${hit.artistName} ${hit.releaseYear ? `(${hit.releaseYear})` : ''}`.substring(0, 100),
+                            value: hit.slug
+                        }))
+                    }]
                 }]
-            }]
-        });
-    })();
+            });
+        } catch (e) {
+            console.error("Error in handleAlbumSearch background task:", e);
+        }
+    })());
 
-    return response;
+    return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
 /**
  * RE-USABLE: Generates the Embed Data
  */
-export async function renderAlbumEmbed(slug: string, isUpdate: boolean = false) {
+export async function renderAlbumEmbed(slug: string) {
     const album = await getAlbumWithStats(slug);
 
     if (!album) {
@@ -110,13 +120,12 @@ export async function renderAlbumEmbed(slug: string, isUpdate: boolean = false) 
         try {
             const res = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${encodeURIComponent(album.artistName)}&album=${encodeURIComponent(album.name)}&api_key=${LASTFM_API_KEY}&format=json`);
             const data = await res.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
             if (img?.['#text']) {
                 coverArtUrl = img['#text'];
                 await updateAlbumCoverArt(slug, coverArtUrl as string);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error("Last.fm Fetch Error:", e); }
     }
 
     const ratings = await getAlbumRatings(slug);

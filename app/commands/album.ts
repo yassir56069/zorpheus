@@ -11,15 +11,15 @@ import { getAlbumWithStats, searchAlbums, updateAlbumCoverArt, getAlbumRatings }
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
 const APP_ID = process.env.DISCORD_APPLICATION_ID;
 
-// Helper to update the "Thinking..." message
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function editInteractionResponse(token: string, data: any) {
     if (!APP_ID) {
-        console.error("Missing DISCORD_APPLICATION_ID in environment variables.");
+        console.error("[ALBUM] ERROR: Missing DISCORD_APPLICATION_ID");
         return;
     }
 
     const url = `https://discord.com/api/v10/webhooks/${APP_ID}/${token}/messages/@original`;
+    console.log(`[ALBUM] Updating interaction via webhook: ${url}`);
+    
     const res = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -28,7 +28,9 @@ async function editInteractionResponse(token: string, data: any) {
 
     if (!res.ok) {
         const errorText = await res.text();
-        console.error("Discord Webhook Update Failed:", errorText);
+        console.error(`[ALBUM] Discord Webhook Update Failed: ${res.status}`, errorText);
+    } else {
+        console.log("[ALBUM] Discord Webhook Update Successful");
     }
 }
 
@@ -39,50 +41,62 @@ function getStars(score: number): string {
     return '★'.repeat(fullStars) + halfStar + '☆'.repeat(emptyStars);
 }
 
-/**
- * COMMAND: /album
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
+    console.log("[ALBUM] Received /album command");
     const options = interaction.data.options ?? [];
     const slugOption = options.find(opt => opt.name === 'slug-value') as APIApplicationCommandInteractionDataStringOption | undefined;
 
-    if (!slugOption) return new NextResponse('Missing slug', { status: 400 });
+    if (!slugOption) {
+        console.warn("[ALBUM] No slug-value provided");
+        return new NextResponse('Missing slug', { status: 400 });
+    }
 
-    // 1. Kick off background work
-    waitUntil((async () => {
+    const slug = slugOption.value;
+    console.log(`[ALBUM] Processing slug: ${slug}`);
+
+    // Define the background task
+    const runBackgroundTask = async () => {
         try {
-            const result = await renderAlbumEmbed(slugOption.value);
+            console.log(`[ALBUM] Starting renderAlbumEmbed for: ${slug}`);
+            const result = await renderAlbumEmbed(slug);
+            console.log(`[ALBUM] renderAlbumEmbed finished for: ${slug}`);
             await editInteractionResponse(interaction.token, result.data);
-        } catch (e) {
-            console.error("Error in handleAlbum background task:", e);
+        } catch (error) {
+            console.error(`[ALBUM] FATAL error in background task for ${slug}:`, error);
+            // Try to notify the user of the failure
+            await editInteractionResponse(interaction.token, { 
+                content: `❌ An internal error occurred while retrieving the album \`${slug}\`.` 
+            });
         }
-    })());
+    };
 
-    // 2. Respond immediately with defer
+    // Use waitUntil correctly
+    waitUntil(runBackgroundTask());
+
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
-/**
- * COMMAND: /album-search
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
+    console.log("[ALBUM] Received /album-search command");
     const options = interaction.data.options ?? [];
     const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
 
     if (!queryOption) return new NextResponse('Missing query', { status: 400 });
 
-    waitUntil((async () => {
+    const searchTerm = queryOption.value;
+
+    const runBackgroundTask = async () => {
         try {
-            const hits = await searchAlbums(queryOption.value);
+            console.log(`[ALBUM] Searching for: ${searchTerm}`);
+            const hits = await searchAlbums(searchTerm);
+            
             if (hits.length === 0) {
-                await editInteractionResponse(interaction.token, { content: `❌ No albums found matching \`${queryOption.value}\`.` });
+                await editInteractionResponse(interaction.token, { content: `❌ No albums found matching \`${searchTerm}\`.` });
                 return;
             }
 
             await editInteractionResponse(interaction.token, {
-                content: `🔍 Found **${hits.length}** results for \`${queryOption.value}\`.\nSelect one below to view its ratings!`,
+                content: `🔍 Found **${hits.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
                 components: [{
                     type: ComponentType.ActionRow,
                     components: [{
@@ -97,37 +111,43 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                     }]
                 }]
             });
-        } catch (e) {
-            console.error("Error in handleAlbumSearch background task:", e);
+        } catch (error) {
+            console.error("[ALBUM] Search Background Error:", error);
         }
-    })());
+    };
+
+    waitUntil(runBackgroundTask());
 
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
-/**
- * RE-USABLE: Generates the Embed Data
- */
 export async function renderAlbumEmbed(slug: string) {
+    console.log(`[ALBUM] Fetching stats from DB for: ${slug}`);
     const album = await getAlbumWithStats(slug);
 
     if (!album) {
+        console.warn(`[ALBUM] No album found in DB for slug: ${slug}`);
         return { data: { content: `❌ Could not find album \`${slug}\` in database.` } };
     }
 
     let coverArtUrl = album.coverArtUrl;
     if (!coverArtUrl && LASTFM_API_KEY) {
         try {
-            const res = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${encodeURIComponent(album.artistName)}&album=${encodeURIComponent(album.name)}&api_key=${LASTFM_API_KEY}&format=json`);
+            console.log(`[ALBUM] Cover art missing, fetching from Last.fm for: ${album.name}`);
+            const res = await fetch(`https://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${encodeURIComponent(album.artistName)}&album=${encodeURIComponent(album.name)}&api_key=${LASTFM_API_KEY}&format=json`);
             const data = await res.json();
             const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
             if (img?.['#text']) {
                 coverArtUrl = img['#text'];
                 await updateAlbumCoverArt(slug, coverArtUrl as string);
+                console.log(`[ALBUM] Successfully updated cover art for: ${slug}`);
             }
-        } catch (e) { console.error("Last.fm Fetch Error:", e); }
+        } catch (e) { 
+            console.error("[ALBUM] Last.fm fetch error:", e); 
+        }
     }
 
+    console.log(`[ALBUM] Fetching user ratings for: ${slug}`);
     const ratings = await getAlbumRatings(slug);
     const ratingsDisplay = ratings.length > 0 
         ? ratings.map(r => `<@${r.userId}>: **${r.score / 2}** ${getStars(r.score)}`).join('\n')
@@ -139,7 +159,7 @@ export async function renderAlbumEmbed(slug: string) {
             embeds: [{
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
-                             `📊 **Average Score:** ${album.avgScore ? (album.avgScore / 2).toFixed(2) : 'N/A'}/5\n` + 
+                             `📊 **Average Score:** ${album.avgScore ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A'}/5\n` + 
                              `🏆 **Overall Rank:** ${album.rank ? `#${album.rank}` : 'Unranked'}\n` + 
                              `👥 **Total Ratings:** ${album.ratingCount || 0}\n\n` +
                              `**Community Ratings:**\n${ratingsDisplay}`,

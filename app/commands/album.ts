@@ -8,8 +8,19 @@ import {
 import { getAlbumWithStats, searchAlbums, updateAlbumCoverArt, getAlbumRatings } from '@/utils/database/album-service';
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
+const APP_ID = process.env.DISCORD_APPLICATION_ID;
 
-// Helper to convert 1-10 to stars
+// Helper to update the "Thinking..." message
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function editInteractionResponse(token: string, data: any) {
+    const url = `https://discord.com/api/v10/webhooks/${APP_ID}/${token}/messages/@original`;
+    await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+}
+
 function getStars(score: number): string {
     const fullStars = Math.floor(score / 2);
     const halfStar = score % 2 !== 0 ? '½' : '';
@@ -17,37 +28,53 @@ function getStars(score: number): string {
     return '★'.repeat(fullStars) + halfStar + '☆'.repeat(emptyStars);
 }
 
+/**
+ * COMMAND: /album
+ */
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction) {
     const options = interaction.data.options ?? [];
-    const slugOption = options.find(opt => opt.name === 'slug') as APIApplicationCommandInteractionDataStringOption | undefined;
+    // Changed 'slug' to 'slug-value' to match your register-commands script
+    const slugOption = options.find(opt => opt.name === 'slug-value') as APIApplicationCommandInteractionDataStringOption | undefined;
 
-    if (!slugOption) {
-        return new NextResponse('Missing slug', { status: 400 });
-    }
+    if (!slugOption) return new NextResponse('Missing slug', { status: 400 });
 
-    return await renderAlbumEmbed(slugOption.value);
+    // 1. Send Deferred Response (Immediate)
+    const response = NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
+
+    // 2. Perform heavy lifting in background
+    (async () => {
+        const result = await renderAlbumEmbed(slugOption.value);
+        await editInteractionResponse(interaction.token, result.data);
+    })();
+
+    return response;
 }
 
+/**
+ * COMMAND: /album-search
+ */
 export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction) {
     const options = interaction.data.options ?? [];
-    const queryOption = options.find(opt => opt.name === 'query') as APIApplicationCommandInteractionDataStringOption | undefined;
+    // Changed 'query' to 'searchterm' to match your register-commands script
+    const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
 
-    if (!queryOption) {
-        return new NextResponse('Missing query', { status: 400 });
-    }
+    if (!queryOption) return new NextResponse('Missing query', { status: 400 });
 
-    const hits = await searchAlbums(queryOption.value);
+    // 1. Send Deferred Response (Immediate)
+    const response = NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 
-    if (hits.length === 0) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `❌ No albums found matching \`${queryOption.value}\`.`, flags: 64 }
-        });
-    }
+    // 2. Perform search in background
+    (async () => {
+        const hits = await searchAlbums(queryOption.value);
 
-    return NextResponse.json({
-        type: InteractionResponseType.ChannelMessageWithSource,
-        data: {
+        if (hits.length === 0) {
+            await editInteractionResponse(interaction.token, {
+                content: `❌ No albums found matching \`${queryOption.value}\`.`
+            });
+            return;
+        }
+
+        await editInteractionResponse(interaction.token, {
             content: `🔍 Found **${hits.length}** results for \`${queryOption.value}\`.\nSelect one below to view its ratings!`,
             components: [{
                 type: ComponentType.ActionRow,
@@ -62,72 +89,56 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                     }))
                 }]
             }]
-        }
-    });
+        });
+    })();
+
+    return response;
 }
 
-export async function renderAlbumEmbed(slug: string, updateMessage: boolean = false) {
+/**
+ * RE-USABLE: Generates the Embed Data
+ */
+export async function renderAlbumEmbed(slug: string, isUpdate: boolean = false) {
     const album = await getAlbumWithStats(slug);
 
     if (!album) {
-        return NextResponse.json({
-            type: InteractionResponseType.ChannelMessageWithSource,
-            data: { content: `❌ Could not find an album with slug \`${slug}\` in the database.`, flags: 64 }
-        });
+        return { data: { content: `❌ Could not find album \`${slug}\` in database.` } };
     }
 
-    // Check and Fetch Cover Art if missing
     let coverArtUrl = album.coverArtUrl;
     if (!coverArtUrl && LASTFM_API_KEY) {
         try {
-            const artistEnc = encodeURIComponent(album.artistName);
-            const albumEnc = encodeURIComponent(album.name);
-            const res = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${artistEnc}&album=${albumEnc}&api_key=${LASTFM_API_KEY}&format=json`);
+            const res = await fetch(`http://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${encodeURIComponent(album.artistName)}&album=${encodeURIComponent(album.name)}&api_key=${LASTFM_API_KEY}&format=json`);
             const data = await res.json();
-            
-            if (data.album?.image) {
-                // Get extralarge or large image
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const img = data.album.image.find((i: any) => i.size === 'extralarge') || data.album.image.find((i: any) => i.size === 'large');
-                if (img && img['#text']) {
-                    coverArtUrl = img['#text'];
-                    await updateAlbumCoverArt(slug, coverArtUrl as string);
-                }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
+            if (img?.['#text']) {
+                coverArtUrl = img['#text'];
+                await updateAlbumCoverArt(slug, coverArtUrl as string);
             }
-        } catch (e) {
-            console.error("Failed to fetch missing album cover:", e);
-        }
+        } catch (e) { console.error(e); }
     }
 
-    // Fetch Ratings
     const ratings = await getAlbumRatings(slug);
-    let ratingsDisplay = "No ratings yet.";
-    
-    if (ratings.length > 0) {
-        ratingsDisplay = ratings.map(r => 
-            `<@${r.userId}>: **${r.score / 2}** ${getStars(r.score)}`
-        ).join('\n');
-    }
+    const ratingsDisplay = ratings.length > 0 
+        ? ratings.map(r => `<@${r.userId}>: **${r.score / 2}** ${getStars(r.score)}`).join('\n')
+        : "No ratings yet.";
 
-    // Embed Construction
-    const embed = {
-        title: `${album.artistName} - ${album.name}`,
-        description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
-                     `📊 **Average Score:** ${album.avgScore ? (album.avgScore / 2).toFixed(2) : 'N/A'}/5\n` + 
-                     `🏆 **Overall Rank:** ${album.rank ? `#${album.rank}` : 'Unranked'}\n` + 
-                     `👥 **Total Ratings:** ${album.ratingCount || 0}\n\n` +
-                     `**Community Ratings:**\n${ratingsDisplay}`,
-        color: 0x3498db,
-        thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
-        footer: { text: `Slug: ${album.slug}` }
-    };
-
-    return NextResponse.json({
-        type: updateMessage ? InteractionResponseType.UpdateMessage : InteractionResponseType.ChannelMessageWithSource,
+    return {
         data: {
             content: "",
-            embeds: [embed],
-            components: [] // Clears components if this was an update from the select menu
+            embeds: [{
+                title: `${album.artistName} - ${album.name}`,
+                description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
+                             `📊 **Average Score:** ${album.avgScore ? (album.avgScore / 2).toFixed(2) : 'N/A'}/5\n` + 
+                             `🏆 **Overall Rank:** ${album.rank ? `#${album.rank}` : 'Unranked'}\n` + 
+                             `👥 **Total Ratings:** ${album.ratingCount || 0}\n\n` +
+                             `**Community Ratings:**\n${ratingsDisplay}`,
+                color: 0x3498db,
+                thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
+                footer: { text: `Slug: ${album.slug}` }
+            }],
+            components: []
         }
-    });
+    };
 }

@@ -141,9 +141,13 @@ export async function POST(req: Request) {
             //#region Album Search
             if (customId === 'album_search_select') {
                 const selectedSlug = selectInteraction.data.values[0];
-                return await renderAlbumEmbed(selectedSlug, true); // true sets InteractionResponseType.UpdateMessage
-            } 
-            //#endregion
+                const result = await renderAlbumEmbed(selectedSlug);
+                
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: result.data // result.data contains the embed and clears the menu
+                });
+            }
         }
         //#endregion
 

@@ -136,22 +136,22 @@ export async function renderAlbumEmbed(slug: string) {
             const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
             if (img?.['#text']) {
                 coverArtUrl = img['#text'];
-                await updateAlbumCoverArt(slug, coverArtUrl as string);
+                // Use the resolved canonical slug
+                await updateAlbumCoverArt(album.slug, coverArtUrl as string);
             }
         } catch (e) { 
             console.error("[ALBUM] Last.fm fetch error:", e); 
         }
     }
 
-    const ratings = await getAlbumRatings(slug);
+    // Use the resolved canonical slug
+    const ratings = await getAlbumRatings(album.slug);
     
     // Standardize the display:
-    // Scores are stored 1-10, we display 0.5-5.0
     const ratingsDisplay = ratings.length > 0 
         ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
         : "No ratings yet.";
 
-    // IMPORTANT: Check != null here, so a 0 average score doesn't default to 'N/A'
     const displayScore = album.avgScore != null ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
 
     return {

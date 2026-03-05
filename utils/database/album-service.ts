@@ -22,7 +22,6 @@ export interface UserRating {
     updatedAt: string;
 }
 
-
 /**
  * Retrieves the top rated albums with pagination and optional date filtering.
  */
@@ -34,22 +33,36 @@ export async function getTopAlbums(options: {
     const { page = 1, limit = 20, days } = options;
     const offset = (page - 1) * limit;
 
-    // Filter for date range if provided
     const dateFilter = days 
-        ? `WHERE createdAt >= datetime('now', '-${days} days')` 
+        ? `WHERE r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
     const sql = `
         WITH UserStats AS (
             SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
         ),
+        CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        CombinedRatings AS (
+            -- Combine ratings of duplicate albums. If a user rated both, we safely take the MAX score to prevent double-voting.
+            SELECT 
+                ca.canonical_slug as albumId,
+                r.userId,
+                MAX(r.score) as score
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            ${dateFilter}
+            GROUP BY ca.canonical_slug, r.userId
+        ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount
-            FROM ratings
-            ${dateFilter}
+            FROM CombinedRatings
             GROUP BY albumId
         )
         SELECT 
@@ -57,8 +70,7 @@ export async function getTopAlbums(options: {
             a.artistName, 
             a.slug,
             s.ratingCount,
-            -- Weighted Score: (Sum of all ratings / Total users in bot) / 2 (to get 0-5 scale)
-            (CAST(s.sumScore AS FLOAT) / (SELECT totalUsers FROM UserStats)) / 2.0 as weightedScore
+            (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
         ORDER BY weightedScore DESC
@@ -70,11 +82,6 @@ export async function getTopAlbums(options: {
     return result.rows as any[];
 }
 
-/**
- * Gets or creates an album in the database.
- */
-// album-service.ts
-
 export async function getOrCreateAlbum(albumData: {
     name: string;
     artistName: string;
@@ -82,13 +89,9 @@ export async function getOrCreateAlbum(albumData: {
     releaseYear?: string | null;
     userId: string;
 }) {
-    // 1. Generate the slug using the year if available
     const slug = generateSlug(albumData.artistName, albumData.name, albumData.releaseYear);
     
     try {
-        // 2. Perform a "Smart Upsert"
-        // We use the slug as the unique identifier. 
-        // If the slug already exists, we just update the MBID or Year if they were missing.
         const result = await db.execute({
             sql: `
                 INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, createdAt)
@@ -98,7 +101,7 @@ export async function getOrCreateAlbum(albumData: {
                     releaseYear = COALESCE(albums.releaseYear, excluded.releaseYear)
                 RETURNING *
             `,
-            args: [
+            args:[
                 albumData.mbid || null, 
                 albumData.name, 
                 albumData.artistName, 
@@ -115,12 +118,7 @@ export async function getOrCreateAlbum(albumData: {
     }
 }
 
-/**
- * Ensures an album exists and has a coverArtUrl.
- * If the album exists but has no cover, it updates it.
- */
 export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string) {
-    // We use the same slug generation logic to ensure consistency
     const slug = generateSlug(artistName, albumName);
 
     try {
@@ -140,39 +138,58 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 
 /**
  * Gets an album by its slug, dynamically calculating its average score, 
- * rating count, and overall ranking among all albums.
+ * rating count, and overall ranking among all albums (including merged ones).
  */
-
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
     const sql = `
         WITH UserStats AS (
             SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
+        ),
+        CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        CombinedRatings AS (
+            SELECT 
+                ca.canonical_slug as albumId,
+                r.userId,
+                MAX(r.score) as score
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            GROUP BY ca.canonical_slug, r.userId
         ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount
-            FROM ratings 
+            FROM CombinedRatings 
             GROUP BY albumId
         ),
         RankedAlbums AS (
             SELECT 
                 albumId, 
-                -- Calculate out of 10 points (divided by total bot users)
                 (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) as avgScore, 
                 ratingCount, 
                 RANK() OVER(
                     ORDER BY (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) DESC, ratingCount DESC
                 ) as rank
             FROM AlbumSums
+        ),
+        TargetAlbum AS (
+            -- Finds the canonical slug regardless of whether the user queried the duplicate or the canonical album
+            SELECT COALESCE(c.slug, a.slug) as target_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            WHERE a.slug = ?
         )
         SELECT 
             a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
             r.avgScore, r.ratingCount, r.rank
         FROM albums a
+        JOIN TargetAlbum t ON a.slug = t.target_slug
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
-        WHERE a.slug = ?
     `;
 
     const result = await db.execute({ sql, args: [slug] });
@@ -182,23 +199,26 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
 }
 
 /**
- * Searches albums by name, artist, or slug
+ * Searches albums by name, artist, or slug, combining duplicates.
  */
 export async function searchAlbums(query: string) {
     const searchTerm = `%${query}%`;
     const sql = `
-        SELECT name, artistName, slug, releaseYear
-        FROM albums
-        WHERE name LIKE ? OR artistName LIKE ? OR slug LIKE ?
+        SELECT 
+            COALESCE(c.name, a.name) as name, 
+            COALESCE(c.artistName, a.artistName) as artistName, 
+            COALESCE(c.slug, a.slug) as slug, 
+            COALESCE(c.releaseYear, a.releaseYear) as releaseYear
+        FROM albums a
+        LEFT JOIN albums c ON a.canonicalId = c.id
+        WHERE a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?
+        GROUP BY COALESCE(c.id, a.id)
         LIMIT 25
     `;
-    const result = await db.execute({ sql, args: [searchTerm, searchTerm, searchTerm] });
+    const result = await db.execute({ sql, args:[searchTerm, searchTerm, searchTerm] });
     return result.rows as unknown as Array<{ name: string, artistName: string, slug: string, releaseYear: string | null }>;
 }
 
-/**
- * Updates the cover art URL for an album
- */
 export async function updateAlbumCoverArt(slug: string, url: string) {
     await db.execute({
         sql: `UPDATE albums SET coverArtUrl = ? WHERE slug = ?`,
@@ -207,13 +227,29 @@ export async function updateAlbumCoverArt(slug: string, url: string) {
 }
 
 /**
- * Gets all user ratings for a specific album
+ * Gets all user ratings for a specific album, combining canonical and duplicate ratings.
  */
 export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
     const sql = `
-        SELECT userId, score, updatedAt
-        FROM ratings
-        WHERE albumId = ?
+        WITH TargetAlbum AS (
+            SELECT COALESCE(c.slug, a.slug) as target_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            WHERE a.slug = ?
+        ),
+        CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        )
+        SELECT 
+            r.userId, 
+            MAX(r.score) as score, 
+            MAX(r.updatedAt) as updatedAt
+        FROM ratings r
+        JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+        JOIN TargetAlbum t ON ca.canonical_slug = t.target_slug
+        GROUP BY r.userId
         ORDER BY score DESC
     `;
     const result = await db.execute({ sql, args: [slug] });
@@ -221,14 +257,12 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
 }
 
 //#region Helper Methods
-
 function normalizeString(str: string): string {
     const normalized = str.toLowerCase().replace(/[\s\p{P}]/gu, '');
     return normalized === '' ? str.toLowerCase().replace(/\s/g, '') : normalized;
 }
 
 function getBaseName(albumName: string): string {
-    // Only strip brackets/parens if they contain common "junk" words
     const base = albumName
         .replace(/\s*[\(\[].*?(remaster|edition|deluxe|version|anniversary|expanded).*?[\)\]]/gi, '')
         .replace(/\s*-.*?(remaster|edition|deluxe|version|anniversary|expanded).*$/gi, '')
@@ -241,8 +275,6 @@ export function generateSlug(artistName: string, albumName: string, releaseYear?
     const artistPart = normalizeString(artistName);
     const albumPart = normalizeString(getBaseName(albumName));
 
-    // Logic: If we have a year, use it. 
-    // This creates 'davidbowie-davidbowie-1967' and 'davidbowie-davidbowie-1969'
     const yearPart = (releaseYear && releaseYear !== "0" && releaseYear.length === 4) 
         ? `-${releaseYear}` 
         : '';

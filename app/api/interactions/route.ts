@@ -30,6 +30,7 @@ import { handleDev } from '@/app/sandbox/dev';
 import { upsertRating } from '@/utils/database/ratings-service';
 import { getOrCreateAlbum } from '@/utils/database/album-service';
 import { waitUntil } from '@vercel/functions';
+import { handleTopAlbums } from '@/app/commands/top-albums';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -72,6 +73,8 @@ export async function POST(req: Request) {
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':
                 return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'top-albums':
+                return handleTopAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'join': 
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':

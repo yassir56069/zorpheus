@@ -12,6 +12,7 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 import { syncAlbumCover } from '@/utils/database/album-service';
+import { getUserByDiscordId, getUserLastFM } from '@/utils/database/user-service';
 
 // --- Types ---
 
@@ -500,7 +501,7 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
         await handleAlbumSearch(interaction, searchOption.value);
     } else {
         const discordUserId = interaction.member!.user.id;
-        const lastfmUsername = await kv.get(discordUserId) as string | null;
+        const lastfmUsername = await getUserLastFM(discordUserId);
 
         if (!lastfmUsername) {
             return NextResponse.json({

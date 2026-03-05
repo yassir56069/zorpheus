@@ -1,5 +1,9 @@
 import { db } from '@/utils/db';
 
+export interface TopAlbumResult extends AlbumStats {
+    totalScore: number;
+}
+
 export interface AlbumStats {
     name: string;
     artistName: string;
@@ -16,6 +20,54 @@ export interface UserRating {
     userId: string;
     score: number;
     updatedAt: string;
+}
+
+
+/**
+ * Retrieves the top rated albums with pagination and optional date filtering.
+ */
+export async function getTopAlbums(options: {
+    page?: number;
+    limit?: number;
+    days?: number; // Optional date range in days
+}): Promise<TopAlbumResult[]> {
+    const { page = 1, limit = 10, days } = options;
+    const offset = (page - 1) * limit;
+
+    // Build the date filter if 'days' is provided
+    const dateFilter = days 
+        ? `WHERE r.createdAt >= datetime('now', '-${days} days')` 
+        : '';
+
+    const sql = `
+        WITH AlbumStats AS (
+            SELECT 
+                albumId, 
+                AVG(score) as avgScore, 
+                COUNT(userId) as ratingCount,
+                SUM(score) as totalScore
+            FROM ratings r
+            ${dateFilter}
+            GROUP BY albumId
+            HAVING COUNT(userId) > 0
+        ),
+        RankedAlbums AS (
+            SELECT 
+                *,
+                RANK() OVER(ORDER BY avgScore DESC, ratingCount DESC) as rank
+            FROM AlbumStats
+        )
+        SELECT 
+            a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
+            r.avgScore, r.ratingCount, r.rank, r.totalScore
+        FROM albums a
+        INNER JOIN RankedAlbums r ON a.slug = r.albumId
+        ORDER BY r.rank ASC
+        LIMIT ? OFFSET ?
+    `;
+
+    const result = await db.execute({ sql, args: [limit, offset] });
+    return result.rows as unknown as TopAlbumResult[];
 }
 
 /**

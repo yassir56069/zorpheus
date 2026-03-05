@@ -61,7 +61,7 @@ const commands = [
     options: [
       {
         name: 'slug-value',
-        description: 'Exact slug format (artistname-albumname). No spaces. Try /album-search if unsure.',
+        description: 'Exact slug format (artistname-albumname-year). No spaces. Try /album-search if unsure.',
         type: 3, // STRING
         required: true,
       },

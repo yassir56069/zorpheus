@@ -122,52 +122,50 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
 }
 
 export async function renderAlbumEmbed(slug: string) {
-    console.log(`[ALBUM] Fetching stats from DB for: ${slug}`);
     const album = await getAlbumWithStats(slug);
 
     if (!album) {
-        console.warn(`[ALBUM] No album found in DB for slug: ${slug}`);
         return { data: { content: `❌ Could not find album \`${slug}\` in database.` } };
     }
 
     let coverArtUrl = album.coverArtUrl;
     if (!coverArtUrl && LASTFM_API_KEY) {
         try {
-            console.log(`[ALBUM] Cover art missing, fetching from Last.fm for: ${album.name}`);
             const res = await fetch(`https://ws.audioscrobbler.com/2.0/?method=album.getinfo&artist=${encodeURIComponent(album.artistName)}&album=${encodeURIComponent(album.name)}&api_key=${LASTFM_API_KEY}&format=json`);
             const data = await res.json();
             const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
             if (img?.['#text']) {
                 coverArtUrl = img['#text'];
                 await updateAlbumCoverArt(slug, coverArtUrl as string);
-                console.log(`[ALBUM] Successfully updated cover art for: ${slug}`);
             }
         } catch (e) { 
             console.error("[ALBUM] Last.fm fetch error:", e); 
         }
     }
 
-    console.log(`[ALBUM] Fetching user ratings for: ${slug}`);
     const ratings = await getAlbumRatings(slug);
+    
+    // Standardize the display:
+    // Scores are stored 1-10, we display 0.5-5.0
     const ratingsDisplay = ratings.length > 0 
-        ? ratings.map(r => `<@${r.userId}>: **${r.score / 2}** ${getStars(r.score)}`).join('\n')
+        ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
         : "No ratings yet.";
+
+    const displayScore = album.avgScore ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
 
     return {
         data: {
-            content: "",
             embeds: [{
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
-                             `📊 **Average Score:** ${album.avgScore ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A'}/5\n` + 
-                             `🏆 **Overall Rank:** ${album.rank ? `#${album.rank}` : 'Unranked'}\n` + 
-                             `👥 **Total Ratings:** ${album.ratingCount || 0}\n\n` +
+                             `📊 **Average Score:** \`${displayScore}\`\n` + 
+                             `🏆 **Overall Rank:** \`#${album.rank || 'Unranked'}\`\n` + 
+                             `👥 **Total Ratings:** \`${album.ratingCount || 0}\`\n\n` +
                              `**Community Ratings:**\n${ratingsDisplay}`,
                 color: 0x3498db,
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
                 footer: { text: `Slug: ${album.slug}` }
-            }],
-            components: []
+            }]
         }
     };
 }

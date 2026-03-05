@@ -93,7 +93,7 @@ const starsOption = options.find(
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: { 
-                content: `✅ Rated **${albumName}** by **${artistName}**: **${starsOption.value}** stars.` 
+                content: `✅ Rated **${albumName}** by **${artistName}**: **${(starsOption.value as number) / 2}** stars.` 
             }
         });
     }

@@ -69,6 +69,32 @@ const commands = [
   },
   //#endregion
 
+  //#region Top Albums 
+  {
+    "name": "top-albums",
+    "description": "View the top-rated albums on the server",
+    "options": [
+      {
+        "type": 4,
+        "name": "page",
+        "description": "The page number to view",
+        "required": false
+      },
+      {
+        "type": 3,
+        "name": "period",
+        "description": "Filter by time period",
+        "required": false,
+        "choices": [
+          { "name": "Last 7 Days", "value": "week" },
+          { "name": "Last 30 Days", "value": "month" },
+          { "name": "Last Year", "value": "year" }
+        ]
+      }
+    ]
+  },
+  //#endregion
+
   //#region Join
   {
     name: 'join',
@@ -242,7 +268,7 @@ const commands = [
   },
   //#endregion
 
-  //#region Profile (TO BE UPDATED)
+  //#region Profile
   {
     name: 'profile',
     description: 'Displays your profile on Zorpheus 🦇🩸.',

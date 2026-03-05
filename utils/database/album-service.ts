@@ -29,45 +29,45 @@ export interface UserRating {
 export async function getTopAlbums(options: {
     page?: number;
     limit?: number;
-    days?: number; // Optional date range in days
-}): Promise<TopAlbumResult[]> {
-    const { page = 1, limit = 10, days } = options;
+    days?: number;
+}) {
+    const { page = 1, limit = 20, days } = options;
     const offset = (page - 1) * limit;
 
-    // Build the date filter if 'days' is provided
+    // Filter for date range if provided
     const dateFilter = days 
-        ? `WHERE r.createdAt >= datetime('now', '-${days} days')` 
+        ? `WHERE createdAt >= datetime('now', '-${days} days')` 
         : '';
 
     const sql = `
-        WITH AlbumStats AS (
+        WITH UserStats AS (
+            SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
+        ),
+        AlbumSums AS (
             SELECT 
                 albumId, 
-                AVG(score) as avgScore, 
-                COUNT(userId) as ratingCount,
-                SUM(score) as totalScore
-            FROM ratings r
+                SUM(score) as sumScore, 
+                COUNT(userId) as ratingCount
+            FROM ratings
             ${dateFilter}
             GROUP BY albumId
-            HAVING COUNT(userId) > 0
-        ),
-        RankedAlbums AS (
-            SELECT 
-                *,
-                RANK() OVER(ORDER BY avgScore DESC, ratingCount DESC) as rank
-            FROM AlbumStats
         )
         SELECT 
-            a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
-            r.avgScore, r.ratingCount, r.rank, r.totalScore
-        FROM albums a
-        INNER JOIN RankedAlbums r ON a.slug = r.albumId
-        ORDER BY r.rank ASC
+            a.name, 
+            a.artistName, 
+            a.slug,
+            s.ratingCount,
+            -- Weighted Score: (Sum of all ratings / Total users in bot) / 2 (to get 0-5 scale)
+            (CAST(s.sumScore AS FLOAT) / (SELECT totalUsers FROM UserStats)) / 2.0 as weightedScore
+        FROM AlbumSums s
+        JOIN albums a ON s.albumId = a.slug
+        ORDER BY weightedScore DESC
         LIMIT ? OFFSET ?
     `;
 
     const result = await db.execute({ sql, args: [limit, offset] });
-    return result.rows as unknown as TopAlbumResult[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return result.rows as any[];
 }
 
 /**

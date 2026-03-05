@@ -9,6 +9,7 @@ import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 import path from 'path';
 import { createCanvas, registerFont } from 'canvas';
+import { getUserLastFM } from '@/utils/database/user-service';
 
 // --- FONT REGISTRATION ---
 // We now register two fonts: Courier New for primary text, and a CJK font for fallbacks.
@@ -351,7 +352,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
 
     if (!lastfmUsername) {
         const discordUserId = interaction.member!.user.id;
-        lastfmUsername = await kv.get(discordUserId) as string | null;
+        lastfmUsername = await getUserLastFM(discordUserId); 
         if (!lastfmUsername) {
             const content = 'Please register your Last.fm username with `/register`.';
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {

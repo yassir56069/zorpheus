@@ -142,20 +142,30 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
  * Gets an album by its slug, dynamically calculating its average score, 
  * rating count, and overall ranking among all albums.
  */
+
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
     const sql = `
-        WITH AlbumStats AS (
-            SELECT albumId, AVG(score) as avgScore, COUNT(userId) as ratingCount
+        WITH UserStats AS (
+            SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
+        ),
+        AlbumSums AS (
+            SELECT 
+                albumId, 
+                SUM(score) as sumScore, 
+                COUNT(userId) as ratingCount
             FROM ratings 
             GROUP BY albumId
         ),
         RankedAlbums AS (
             SELECT 
                 albumId, 
-                avgScore, 
+                -- Calculate out of 10 points (divided by total bot users)
+                (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) as avgScore, 
                 ratingCount, 
-                RANK() OVER(ORDER BY avgScore DESC, ratingCount DESC) as rank
-            FROM AlbumStats
+                RANK() OVER(
+                    ORDER BY (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) DESC, ratingCount DESC
+                ) as rank
+            FROM AlbumSums
         )
         SELECT 
             a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,

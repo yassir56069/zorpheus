@@ -151,11 +151,12 @@ export async function renderAlbumEmbed(slug: string) {
         ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
         : "No ratings yet.";
 
-    const displayScore = album.avgScore ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
+    // IMPORTANT: Check != null here, so a 0 average score doesn't default to 'N/A'
+    const displayScore = album.avgScore != null ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
 
     return {
         data: {
-            embeds: [{
+            embeds:[{
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              `📊 **Average Score:** \`${displayScore}\`\n` + 

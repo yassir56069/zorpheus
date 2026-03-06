@@ -151,24 +151,30 @@ export async function POST(req: Request) {
                     try {
                         const result = await renderAlbumEmbed(selectedSlug);
                         
-                        // Use the spread operator to append components safely 
-                        // without mutating the strict TypeScript object
+                        // Overwrite the loading message with the final result
                         await editInteractionResponse(interaction.token, {
                             ...result.data,
-                            components:[] // Explicitly clear components to remove the dropdown
+                            components:[] // Explicitly clear components 
                         });
 
                     } catch (error) {
                         console.error("[ALBUM] Select Menu Background Error:", error);
                         await editInteractionResponse(interaction.token, { 
-                            content: `❌ An internal error occurred while retrieving the album.` 
+                            content: `❌ An internal error occurred while retrieving the album.`,
+                            embeds: [],
+                            components:[]
                         });
                     }
                 })());
 
-                // Immediately acknowledge the selection so Discord never times out
+                // IMMEDIATELY update the message to a loading state so the user knows it's working
                 return NextResponse.json({
-                    type: InteractionResponseType.DeferredMessageUpdate
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
+                        content: `⏳ Fetching statistics and cover art for \`${selectedSlug}\`. This might take a moment...`,
+                        embeds: [], // Clear any existing embeds
+                        components:[] // Remove the dropdown so they can't click it again while it loads
+                    }
                 });
             }
         }

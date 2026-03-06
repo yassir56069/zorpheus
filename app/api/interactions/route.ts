@@ -15,7 +15,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRate } from '@/app/commands/rate';
 import { handleImport } from '@/app/commands/import';
-import { handleAlbum, handleAlbumSearch, renderAlbumEmbed } from '@/app/commands/album';
+import { handleAlbum, handleAlbumSearch, renderAlbumEmbed, editInteractionResponse } from '@/app/commands/album';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
@@ -145,12 +145,30 @@ export async function POST(req: Request) {
             //#region Album Search
             if (customId === 'album_search_select') {
                 const selectedSlug = componentInteraction.data.values[0];
-                // renderAlbumEmbed is relatively fast, so we don't necessarily need to defer here
-                // but we can if the DB is slow.
-                const result = await renderAlbumEmbed(selectedSlug);
+                
+                // Fire off the background task safely using waitUntil
+                waitUntil((async () => {
+                    try {
+                        const result = await renderAlbumEmbed(selectedSlug);
+                        
+                        // Use the spread operator to append components safely 
+                        // without mutating the strict TypeScript object
+                        await editInteractionResponse(interaction.token, {
+                            ...result.data,
+                            components:[] // Explicitly clear components to remove the dropdown
+                        });
+
+                    } catch (error) {
+                        console.error("[ALBUM] Select Menu Background Error:", error);
+                        await editInteractionResponse(interaction.token, { 
+                            content: `❌ An internal error occurred while retrieving the album.` 
+                        });
+                    }
+                })());
+
+                // Immediately acknowledge the selection so Discord never times out
                 return NextResponse.json({
-                    type: InteractionResponseType.UpdateMessage,
-                    data: result.data
+                    type: InteractionResponseType.DeferredMessageUpdate
                 });
             }
         }

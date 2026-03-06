@@ -11,7 +11,7 @@ import { getAlbumWithStats, searchAlbums, updateAlbumCoverArt, getAlbumRatings }
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
 const APP_ID = process.env.DISCORD_APPLICATION_ID;
 
-async function editInteractionResponse(token: string, data: any) {
+export async function editInteractionResponse(token: string, data: any) {
     if (!APP_ID) {
         console.error("[ALBUM] ERROR: Missing DISCORD_APPLICATION_ID");
         return;

@@ -202,20 +202,78 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
  * Searches albums by name, artist, or slug, combining duplicates.
  */
 export async function searchAlbums(query: string) {
-    const searchTerm = `%${query}%`;
+    const cleanQuery = query.trim().replace(/\s+/g, ' ');
+    const searchTerm = `%${cleanQuery}%`;
+    const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
+    
+    // Replaces all vowels with SQLite wildcards to effortlessly ignore accent diacritics
+    // Also replaces spaces with % to allow missing punctuation
+    const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
+    const forgivingQuery = `%${forgivingPattern}%`;
+    
+    const words = cleanQuery.split(' ').filter(w => w.length > 0);
+
+    const conditions: string[] = [];
+    const args: string[] =[];
+
+    // 1. SELECT clause MAX(CASE...) arguments for scoring matches
+    args.push(searchTerm, searchTerm, looseQuery, searchTerm);
+
+    // 2. Base Exactish conditions (Allows matching 'Artist Album')
+    conditions.push(
+        `a.name LIKE ?`,
+        `a.artistName LIKE ?`,
+        `a.slug LIKE ?`,
+        `a.artistName || ' ' || a.name LIKE ?`,
+        `a.name || ' ' || a.artistName LIKE ?`
+    );
+    args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
+
+    // 3. Forgiving Accents conditions
+    conditions.push(
+        `a.name LIKE ?`,
+        `a.artistName LIKE ?`,
+        `a.slug LIKE ?`,
+        `a.artistName || ' ' || a.name LIKE ?`,
+        `a.name || ' ' || a.artistName LIKE ?`
+    );
+    args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
+
+    // 4. Word-by-word chunking: Require all words to be present SOMEWHERE
+    if (words.length > 1) {
+        const wordConditions = words.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
+        conditions.push(`(${wordConditions.join(' AND ')})`);
+        for (const word of words) {
+            // Give individual words the forgiving diacritic treatment too
+            const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
+            args.push(w, w, w);
+        }
+    }
+
     const sql = `
         SELECT 
             COALESCE(c.name, a.name) as name, 
             COALESCE(c.artistName, a.artistName) as artistName, 
             COALESCE(c.slug, a.slug) as slug, 
-            COALESCE(c.releaseYear, a.releaseYear) as releaseYear
+            COALESCE(c.releaseYear, a.releaseYear) as releaseYear,
+            MAX(
+                CASE 
+                    WHEN a.name LIKE ? THEN 100
+                    WHEN a.artistName LIKE ? THEN 90
+                    WHEN a.artistName || ' ' || a.name LIKE ? THEN 80
+                    WHEN a.slug LIKE ? THEN 70
+                    ELSE 0
+                END
+            ) as matchScore
         FROM albums a
         LEFT JOIN albums c ON a.canonicalId = c.id
-        WHERE a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?
+        WHERE ${conditions.join(' OR ')}
         GROUP BY COALESCE(c.id, a.id)
+        ORDER BY matchScore DESC, name ASC
         LIMIT 25
     `;
-    const result = await db.execute({ sql, args:[searchTerm, searchTerm, searchTerm] });
+
+    const result = await db.execute({ sql, args });
     return result.rows as unknown as Array<{ name: string, artistName: string, slug: string, releaseYear: string | null }>;
 }
 

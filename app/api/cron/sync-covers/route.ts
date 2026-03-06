@@ -41,7 +41,7 @@ export async function GET(req: Request) {
             (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
-        WHERE a.coverUrl IS NULL 
+        WHERE a.COVERARTURL IS NULL 
         ORDER BY weightedScore DESC
         LIMIT 200
     `;
@@ -90,7 +90,7 @@ export async function GET(req: Request) {
 
             // Queue up the Turso query for execution later
             updates.push({
-                sql: 'UPDATE albums SET coverUrl = ? WHERE slug = ?',
+                sql: 'UPDATE albums SET COVERARTURL = ? WHERE slug = ?',
                 args:[finalCoverUrl, album.slug as string]
             });
 

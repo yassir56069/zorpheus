@@ -153,6 +153,7 @@ export async function POST(req: Request) {
                         
                         // Overwrite the loading message with the final result
                         await editInteractionResponse(interaction.token, {
+                            content: "", 
                             ...result.data,
                             components:[] // Explicitly clear components 
                         });

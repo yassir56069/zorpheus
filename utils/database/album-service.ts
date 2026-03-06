@@ -77,7 +77,7 @@ export async function getTopAlbums(options: {
         LIMIT ? OFFSET ?
     `;
 
-    const result = await db.execute({ sql, args: [limit, offset] });
+    const result = await db.execute({ sql, args:[limit, offset] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }
@@ -90,12 +90,57 @@ export async function getOrCreateAlbum(albumData: {
     userId: string;
 }) {
     const slug = generateSlug(albumData.artistName, albumData.name, albumData.releaseYear);
+    const baseSlug = generateSlug(albumData.artistName, albumData.name, null);
     
     try {
+        // 1. Check if this exact slug already exists
+        const existing = await db.execute({
+            sql: `SELECT * FROM albums WHERE slug = ?`,
+            args: [slug]
+        });
+
+        if (existing.rows.length > 0) {
+            const album = existing.rows[0];
+            // If this entry points to a canonical ID, RETURN the canonical album instead
+            // This ensures the bot pushes the new rating to the real release.
+            if (album.canonicalId) {
+                const canonical = await db.execute({
+                    sql: `SELECT * FROM albums WHERE id = ?`,
+                    args: [album.canonicalId]
+                });
+                if (canonical.rows.length > 0) return canonical.rows[0];
+            }
+            return album;
+        }
+
+        // 2. If no exact match exists AND year is missing, try to find a canonical match
+        let canonicalId: number | null = null;
+        let canonicalSlug: string | null = null;
+
+        if (!albumData.releaseYear) {
+            const canonicalMatch = await db.execute({
+                sql: `
+                    SELECT id, slug FROM albums 
+                    WHERE slug LIKE ? 
+                      AND releaseYear IS NOT NULL 
+                      AND canonicalId IS NULL
+                    ORDER BY releaseYear ASC
+                    LIMIT 1
+                `,
+                args: [`${baseSlug}-%`] 
+            });
+
+            if (canonicalMatch.rows.length > 0) {
+                canonicalId = canonicalMatch.rows[0].id as number;
+                canonicalSlug = canonicalMatch.rows[0].slug as string;
+            }
+        }
+
+        // 3. Insert the new album record (either standard, or pointing to a canonical ID)
         const result = await db.execute({
             sql: `
-                INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, createdAt)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, canonicalId, createdAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(slug) DO UPDATE SET 
                     mbid = COALESCE(albums.mbid, excluded.mbid),
                     releaseYear = COALESCE(albums.releaseYear, excluded.releaseYear)
@@ -107,9 +152,20 @@ export async function getOrCreateAlbum(albumData: {
                 albumData.artistName, 
                 slug, 
                 albumData.releaseYear || null,
-                albumData.userId
+                albumData.userId,
+                canonicalId
             ]
         });
+
+        // 4. If we assigned a canonicalId, return the canonical version 
+        // so the caller uses the correct slug for the rating insert.
+        if (canonicalSlug) {
+            const canonical = await db.execute({
+                sql: `SELECT * FROM albums WHERE slug = ?`,
+                args: [canonicalSlug]
+            });
+            if (canonical.rows.length > 0) return canonical.rows[0];
+        }
 
         return result.rows[0];
     } catch (e) {
@@ -118,8 +174,9 @@ export async function getOrCreateAlbum(albumData: {
     }
 }
 
-export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string) {
-    const slug = generateSlug(artistName, albumName);
+// Added optional releaseYear so cover art syncs properly attach to the canonical slug
+export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string, releaseYear?: string | null) {
+    const slug = generateSlug(artistName, albumName, releaseYear);
 
     try {
         await db.execute({
@@ -129,7 +186,7 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
                 ON CONFLICT(slug) DO UPDATE SET 
                     coverArtUrl = COALESCE(albums.coverArtUrl, excluded.coverArtUrl)
             `,
-            args: [albumName, artistName, slug, coverUrl, userId]
+            args:[albumName, artistName, slug, coverUrl, userId]
         });
     } catch (e) {
         console.error("Error syncing album cover:", e);
@@ -213,7 +270,7 @@ export async function searchAlbums(query: string) {
     
     const words = cleanQuery.split(' ').filter(w => w.length > 0);
 
-    const conditions: string[] = [];
+    const conditions: string[] =[];
     const args: string[] =[];
 
     // 1. SELECT clause MAX(CASE...) arguments for scoring matches
@@ -280,7 +337,7 @@ export async function searchAlbums(query: string) {
 export async function updateAlbumCoverArt(slug: string, url: string) {
     await db.execute({
         sql: `UPDATE albums SET coverArtUrl = ? WHERE slug = ?`,
-        args: [url, slug]
+        args:[url, slug]
     });
 }
 

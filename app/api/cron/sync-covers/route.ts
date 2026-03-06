@@ -6,14 +6,17 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+    // Start a timer to prevent hitting Vercel's 60s hard timeout
+    const startTime = Date.now();
+    const MAX_EXECUTION_TIME_MS = 50000; // 50 seconds (leaves 10s for the DB batch write)
+
     // 1. Secure the endpoint using Vercel's Cron Secret
     const authHeader = req.headers.get('authorization');
     if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Query the top 30 albums that STILL need a cover
-    // Replace "coverUrl" if your database uses a different column name (e.g., "imageUrl")
+    // 2. Query the top 200 albums that STILL need a cover
     const sql = `
         WITH UserStats AS (
             SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
@@ -40,7 +43,7 @@ export async function GET(req: Request) {
         JOIN albums a ON s.albumId = a.slug
         WHERE a.coverUrl IS NULL 
         ORDER BY weightedScore DESC
-        LIMIT 30
+        LIMIT 200
     `;
 
     const result = await db.execute(sql);
@@ -55,6 +58,12 @@ export async function GET(req: Request) {
 
     // 3. Loop sequentially to respect rate limits
     for (const album of albums) {
+        // SAFETY VALVE: Check if we are approaching the 60s Vercel limit
+        if (Date.now() - startTime > MAX_EXECUTION_TIME_MS) {
+            console.log('Approaching 60s timeout limit. Stopping fetch loop early.');
+            break; 
+        }
+
         try {
             const artist = encodeURIComponent(album.artistName as string);
             const albumName = encodeURIComponent(album.name as string);
@@ -69,12 +78,9 @@ export async function GET(req: Request) {
             const data = await response.json();
             const images = data.album?.image;
             
-            // Fallback to empty string so we don't infinitely retry this album if no art exists
             let finalCoverUrl = ''; 
 
             if (images && Array.isArray(images)) {
-                // Last.fm size map: 'small', 'medium', 'large', 'extralarge' (~300x300), 'mega'
-                // We pick 'extralarge' which is perfect for your requirements
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const xlImage = images.find((img: any) => img.size === 'extralarge') || images[images.length - 1];
                 if (xlImage && xlImage['#text']) {
@@ -85,7 +91,7 @@ export async function GET(req: Request) {
             // Queue up the Turso query for execution later
             updates.push({
                 sql: 'UPDATE albums SET coverUrl = ? WHERE slug = ?',
-                args: [finalCoverUrl, album.slug as string]
+                args:[finalCoverUrl, album.slug as string]
             });
 
             // Brief 100ms delay to ensure we easily stay under the 5 req/sec limit
@@ -93,19 +99,17 @@ export async function GET(req: Request) {
 
         } catch (error) {
             console.error(`Failed to fetch cover for ${album.slug}:`, error);
-            // We break out of the loop early if Last.fm rate limits/fails, 
-            // so we can at least save the updates we successfully generated so far.
+            // Break loop early on API failures so we save the ones we already got
             break; 
         }
     }
 
     // 4. Batch push updates to Turso
     if (updates.length > 0) {
-        // .batch executes everything in a single fast transaction
         await db.batch(updates);
     }
 
     return NextResponse.json({ 
-        message: `Processed ${updates.length} albums.` 
+        message: `Processed ${updates.length} albums in ${((Date.now() - startTime) / 1000).toFixed(2)} seconds.` 
     });
 }

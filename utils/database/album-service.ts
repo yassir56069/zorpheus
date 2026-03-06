@@ -38,30 +38,21 @@ export async function getTopAlbums(options: {
         : '';
 
     const sql = `
-        WITH UserStats AS (
-            SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
-        ),
+        WITH UserStats AS (SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings),
         CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
         CombinedRatings AS (
-            -- Combine ratings of duplicate albums. If a user rated both, we safely take the MAX score to prevent double-voting.
-            SELECT 
-                ca.canonical_slug as albumId,
-                r.userId,
-                MAX(r.score) as score
+            SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
             ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
         AlbumSums AS (
-            SELECT 
-                albumId, 
-                SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount
+            SELECT albumId, SUM(score) as sumScore, COUNT(userId) as ratingCount
             FROM CombinedRatings
             GROUP BY albumId
         )
@@ -69,6 +60,7 @@ export async function getTopAlbums(options: {
             a.name, 
             a.artistName, 
             a.slug,
+            a.coverArtUrl, -- Added this
             s.ratingCount,
             (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
         FROM AlbumSums s
@@ -77,7 +69,7 @@ export async function getTopAlbums(options: {
         LIMIT ? OFFSET ?
     `;
 
-    const result = await db.execute({ sql, args:[limit, offset] });
+    const result = await db.execute({ sql, args: [limit, offset] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }

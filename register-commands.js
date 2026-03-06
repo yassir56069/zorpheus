@@ -268,6 +268,44 @@ const commands = [
   },
   //#endregion
 
+  //#region Rated Chart
+  {
+    "name": "top-chart",
+    "description": "Generates a grid of the highest rated albums in the server.",
+    "options": [
+      {
+        "name": "size",
+        "description": "The dimensions of the chart grid (default: 3x3).",
+        "type": 3, 
+        "required": false,
+        "choices": [
+          { "name": "3x3", "value": "3x3" },
+          { "name": "4x4", "value": "4x4" },
+          { "name": "5x5", "value": "5x5" }
+        ]
+      },
+      {
+        "name": "period",
+        "description": "Filter by ratings from a specific time period.",
+        "type": 3,
+        "required": false,
+        "choices": [
+          { "name": "Last 7 Days", "value": "week" },
+          { "name": "Last Month", "value": "month" },
+          { "name": "Last Year", "value": "year" },
+          { "name": "All Time", "value": "overall" }
+        ]
+      },
+      {
+        "name": "page",
+        "description": "Which page of the rankings to display (default: 1).",
+        "type": 4, 
+        "required": false
+      }
+    ]
+  },
+  //#endregion
+
   //#region Profile
   {
     name: 'profile',

@@ -151,7 +151,6 @@ export async function POST(req: Request) {
                     try {
                         const result = await renderAlbumEmbed(selectedSlug);
                         
-                        // Overwrite the loading message with the final result
                         await editInteractionResponse(interaction.token, {
                             content: "", 
                             ...result.data,

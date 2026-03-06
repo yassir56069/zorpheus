@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 // Import your Turso db instance here
 import { db } from '@/utils/db'; 
 
-// Vercel Hobby tier allows configuring up to 60 seconds
 export const maxDuration = 60; 
 export const dynamic = 'force-dynamic';
 

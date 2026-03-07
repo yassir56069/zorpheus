@@ -6,7 +6,17 @@ import {
     APIApplicationCommandInteractionDataStringOption,
     ComponentType
 } from 'discord-api-types/v10';
-import { getAlbumWithStats, searchAlbums, updateAlbumCoverArt, getAlbumRatings } from '@/utils/database/album-service';
+import { 
+    getAlbumWithStats, 
+    searchAlbums, 
+    updateAlbumCoverArt, 
+    getAlbumRatings, 
+    getOrCreateAlbum 
+} from '@/utils/database/album-service';
+
+import { getUserLastFM } from '@/utils/database/user-service';
+
+
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
 const APP_ID = process.env.DISCORD_APPLICATION_ID;
@@ -43,36 +53,100 @@ function getStars(score: number): string {
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
-    const options = interaction.data.options ?? [];
+    const options = interaction.data.options ??[];
     const slugOption = options.find(opt => opt.name === 'slug-value') as APIApplicationCommandInteractionDataStringOption | undefined;
-
-    if (!slugOption) {
-        console.warn("[ALBUM] No slug-value provided");
-        return new NextResponse('Missing slug', { status: 400 });
-    }
-
-    const slug = slugOption.value;
-    console.log(`[ALBUM] Processing slug: ${slug}`);
+    
+    // Support both server and DM interactions
+    const discordUserId = interaction.member?.user?.id || interaction.user?.id;
 
     // Define the background task
     const runBackgroundTask = async () => {
         try {
-            console.log(`[ALBUM] Starting renderAlbumEmbed for: ${slug}`);
-            const result = await renderAlbumEmbed(slug);
-            console.log(`[ALBUM] renderAlbumEmbed finished for: ${slug}`);
+            // Explicitly type as string | undefined
+            let targetSlug: string | undefined = slugOption?.value;
+
+            // --- NEW LOGIC: If no slug provided, fetch from Last.fm ---
+            if (!targetSlug) {
+                console.log(`[ALBUM] No slug provided, fetching current Last.fm track for user ${discordUserId}`);
+                
+                const lastfmUsername = await getUserLastFM(discordUserId as string) as string | null;
+                
+                if (!lastfmUsername) {
+                    await editInteractionResponse(interaction.token, {
+                        content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide an album slug directly.`
+                    });
+                    return;
+                }
+
+                const apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastfmUsername}&api_key=${LASTFM_API_KEY}&format=json&limit=1`;
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+
+                if (data.error || !data.recenttracks || data.recenttracks.track.length === 0) {
+                    await editInteractionResponse(interaction.token, {
+                        content: `Could not find any recent tracks for user \`${lastfmUsername}\`.`
+                    });
+                    return;
+                }
+
+                const track = data.recenttracks.track[0];
+                const artist = track.artist['#text'];
+                const albumName = track.album['#text'];
+                const albumMbid = track.album.mbid || null;
+
+                if (!albumName) {
+                    await editInteractionResponse(interaction.token, {
+                        content: `Your current track (**${track.name}** by **${artist}**) doesn't have an album associated with it. Please provide an album slug directly.`
+                    });
+                    return;
+                }
+
+                console.log(`[ALBUM] Found current album: ${albumName} by ${artist}. Checking database...`);
+                
+                // Get or create the album to ensure it exists and get the exact canonical slug
+                const albumRecord = await getOrCreateAlbum({
+                    name: albumName,
+                    artistName: artist,
+                    mbid: albumMbid,
+                    userId: discordUserId as string
+                });
+
+                if (!albumRecord) {
+                    await editInteractionResponse(interaction.token, {
+                        content: `❌ Failed to process the album **${albumName}** by **${artist}**.`
+                    });
+                    return;
+                }
+
+                // FIX: Cast the LibSQL 'Value' type to 'string'
+                targetSlug = albumRecord.slug as string;
+                console.log(`[ALBUM] Derived slug from current track: ${targetSlug}`);
+            }
+            // --- END NEW LOGIC ---
+
+            // Fallback safety catch so renderAlbumEmbed doesn't get undefined
+            if (!targetSlug) {
+                 await editInteractionResponse(interaction.token, { 
+                    content: `❌ Could not resolve the album slug.` 
+                });
+                return;
+            }
+
+            console.log(`[ALBUM] Starting renderAlbumEmbed for: ${targetSlug}`);
+            const result = await renderAlbumEmbed(targetSlug);
+            console.log(`[ALBUM] renderAlbumEmbed finished for: ${targetSlug}`);
             await editInteractionResponse(interaction.token, result.data);
+
         } catch (error) {
-            console.error(`[ALBUM] FATAL error in background task for ${slug}:`, error);
-            // Try to notify the user of the failure
+            console.error(`[ALBUM] FATAL error in background task:`, error);
             await editInteractionResponse(interaction.token, { 
-                content: `❌ An internal error occurred while retrieving the album \`${slug}\`.` 
+                content: `❌ An internal error occurred while retrieving the album.` 
             });
         }
     };
 
-    // Use waitUntil correctly
+    // Defers the response and runs task in background
     waitUntil(runBackgroundTask());
-
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 

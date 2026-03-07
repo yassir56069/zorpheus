@@ -366,7 +366,9 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            WHERE a.slug = ?
+            -- ADDED: Support truncated slugs by falling back to a LIKE wildcard
+            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+            LIMIT 1
         )
         SELECT 
             a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
@@ -377,8 +379,8 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
 
-    // Pass the threshold followed by the query slug
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug] });
+    // ADDED: Pass the extra params, dynamically adding '%' for the LIKE statement
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     
     return result.rows[0] as unknown as AlbumStats;
@@ -472,7 +474,9 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            WHERE a.slug = ?
+            -- ADDED: Support truncated slugs
+            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+            LIMIT 1
         ),
         CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
@@ -489,7 +493,9 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         GROUP BY r.userId
         ORDER BY score DESC
     `;
-    const result = await db.execute({ sql, args: [slug] });
+    
+    // ADDED: Pass the extra params
+    const result = await db.execute({ sql, args: [slug, slug, slug + '%'] });
     return result.rows as unknown as UserRating[];
 }
 

@@ -153,12 +153,22 @@ export async function handleAlbum(interaction: APIChatInputApplicationCommandInt
 
 export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album-search command");
-    const options = interaction.data.options ?? [];
+    const options = interaction.data.options ??[];
     const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
 
     if (!queryOption) return new NextResponse('Missing query', { status: 400 });
 
     const searchTerm = queryOption.value;
+
+    // --- ADDED: Early validation for search length ---
+    if (searchTerm.length > 100) {
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: `❌ Search term is too long (${searchTerm.length} characters). Please keep it under 100 characters.`
+            }
+        });
+    }
 
     const runBackgroundTask = async () => {
         try {
@@ -172,16 +182,17 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
 
             await editInteractionResponse(interaction.token, {
                 content: `🔍 Found **${hits.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
-                components: [{
+                components:[{
                     type: ComponentType.ActionRow,
-                    components: [{
+                    components:[{
                         type: ComponentType.StringSelect,
                         custom_id: `album_search_select`,
                         placeholder: "Choose an album to view",
                         options: hits.map(hit => ({
                             label: hit.name.substring(0, 100),
                             description: `${hit.artistName} ${hit.releaseYear ? `(${hit.releaseYear})` : ''}`.substring(0, 100),
-                            value: hit.slug
+                            // ADDED: Fix Discord 100-character limit on option values
+                            value: hit.slug.substring(0, 100)
                         }))
                     }]
                 }]

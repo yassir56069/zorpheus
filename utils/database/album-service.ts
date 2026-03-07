@@ -490,6 +490,7 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         FROM ratings r
         JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
         JOIN TargetAlbum t ON ca.canonical_slug = t.target_slug
+        WHERE r.score > 0
         GROUP BY r.userId
         ORDER BY score DESC
     `;

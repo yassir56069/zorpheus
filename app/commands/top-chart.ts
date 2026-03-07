@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
-import { InteractionResponseType, APIChatInputApplicationCommandInteraction, APIApplicationCommandInteractionDataStringOption } from 'discord-api-types/v10';
+import { InteractionResponseType, APIChatInputApplicationCommandInteraction, APIApplicationCommandInteractionDataStringOption, APIApplicationCommandInteractionDataIntegerOption } from 'discord-api-types/v10';
 import sharp from 'sharp';
 import { createCanvas } from 'canvas';
 import { getTopAlbums } from '@/utils/database/album-service';
@@ -13,8 +14,12 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
     });
 
     const options = (interaction.data.options || []);
-    const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '3x3';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    
+    // --- FIX: Extract Page Option ---
+    const rawPage = (options.find(opt => opt.name === 'page') as any)?.value;
+    const page = rawPage ? Number(rawPage) : 1;
+
+    const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '5x5';
     const period = (options.find(opt => opt.name === 'period') as any)?.value;
     
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
@@ -24,23 +29,26 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
     const days = period ? daysMap[period] : undefined;
 
     try {
-        // 2. Fetch data from Turso
-        const albums = await getTopAlbums({ page: 1, limit, days });
+        // 2. Fetch data from Turso with the dynamic page
+        const albums = await getTopAlbums({ page, limit, days });
 
         if (!albums || albums.length === 0) {
-            await updateResponse(interaction, { content: "No rated albums found in the database." });
+            await updateResponse(interaction, { content: `No rated albums found for page ${page}.` });
             return new NextResponse(null, { status: 204 });
         }
 
-        // 3. Generate the chart
-        const chartBuffer = await createRankedChartImage(albums, gridWidth, gridHeight);
+        // 3. Generate the chart (Passing page/limit to calculate correct rank numbers)
+        const chartBuffer = await createRankedChartImage(albums, gridWidth, gridHeight, page, limit);
 
         // 4. Send back to Discord
         const formData = new FormData();
         formData.append('file', new Blob([chartBuffer]), 'top-chart.png');
         
-        const title = period ? `Top Rated Albums (Last ${period})` : `Top Rated Albums (All Time)`;
-        formData.append('payload_json', JSON.stringify({ content: `### 🏆 ${title}` }));
+        const title = period ? `Top Rated Albums (${period})` : `Top Rated Albums (All Time)`;
+        const pageText = page > 1 ? ` - Page ${page}` : '';
+        formData.append('payload_json', JSON.stringify({ 
+            content: `### 🏆 ${title}${pageText}` 
+        }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
             method: 'PATCH',
@@ -49,7 +57,7 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
 
     } catch (error) {
         console.error("Top Chart Error:", error);
-        await updateResponse(interaction, { content: "An error occurred while generating the chart." });
+        await updateResponse(interaction, { content: "An error occurred while generating the chart. The grid might be too large for the server to process in time." });
     }
 
     return new NextResponse(null, { status: 204 });
@@ -58,64 +66,76 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
 /**
  * Creates a chart image with rating overlays
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function createRankedChartImage(albums: any[], gridWidth: number, gridHeight: number): Promise<Buffer> {
-    const imageSize = 300; // Standard size
+async function createRankedChartImage(
+    albums: any[], 
+    gridWidth: number, 
+    gridHeight: number, 
+    page: number, 
+    limit: number
+): Promise<Buffer> {
+    // OPTIMIZATION: If the grid is massive (e.g. 10x10), reduce tile size to save memory/bandwidth
+    // 300px * 10 = 3000px (Very heavy). 200px * 10 = 2000px (Manageable).
+    const imageSize = (gridWidth * gridHeight) > 25 ? 200 : 300; 
+    
     const canvasWidth = imageSize * gridWidth;
     const canvasHeight = imageSize * gridHeight;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const compositeOperations: any[] = [];
 
-    // Process all albums in parallel to speed up serverless execution
+    // Process all albums in parallel
     const albumPromises = albums.map(async (album, index) => {
         const row = Math.floor(index / gridWidth);
         const col = index % gridWidth;
         const left = col * imageSize;
         const top = row * imageSize;
 
+        // Calculate actual rank: (previous pages * items per page) + current index + 1
+        const globalRank = ((page - 1) * limit) + index + 1;
+
         let albumArt: Buffer;
         try {
             const url = album.coverArtUrl || 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art';
             const res = await fetch(url);
             const arrayBuffer = await res.arrayBuffer();
-            albumArt = await sharp(Buffer.from(arrayBuffer)).resize(imageSize, imageSize).toBuffer();
+            // Resize immediately to target imageSize to save memory
+            albumArt = await sharp(Buffer.from(arrayBuffer))
+                .resize(imageSize, imageSize)
+                .toBuffer();
         } catch {
-            albumArt = await sharp({ create: { width: imageSize, height: imageSize, channels: 4, background: { r: 30, g: 30, b: 30, alpha: 1 } } }).png().toBuffer();
+            albumArt = await sharp({ 
+                create: { width: imageSize, height: imageSize, channels: 4, background: { r: 30, g: 30, b: 30, alpha: 1 } } 
+            }).png().toBuffer();
         }
 
-        // Create the Rating Badge Overlay using Canvas
         const badgeCanvas = createCanvas(imageSize, imageSize);
         const ctx = badgeCanvas.getContext('2d');
+        const score = Number(album.avgScore).toFixed(2);
         
-        const score = Number(album.weightedScore).toFixed(2);
-        
-        // Background Pill for score (Bottom Right)
-        const padding = 8;
-        ctx.font = 'bold 24px "Courier New"';
+        // --- SCORE BADGE (Bottom Right) ---
+        ctx.font = `bold ${Math.floor(imageSize/12)}px "Courier New"`;
         const textMetrics = ctx.measureText(score);
-        const badgeWidth = textMetrics.width + 20;
-        const badgeHeight = 40;
-        const bx = imageSize - badgeWidth - 10;
-        const by = imageSize - badgeHeight - 10;
+        const badgeWidth = textMetrics.width + 14;
+        const badgeHeight = imageSize / 8;
+        const bx = imageSize - badgeWidth - 5;
+        const by = imageSize - badgeHeight - 5;
 
-        // Draw semi-transparent background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        roundRect(ctx, bx, by, badgeWidth, badgeHeight, 8);
+        roundRect(ctx, bx, by, badgeWidth, badgeHeight, 5);
         ctx.fill();
 
-        // Draw score text
         ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
-        ctx.fillText(score, bx + badgeWidth / 2, by + 28);
+        ctx.fillText(score, bx + badgeWidth / 2, by + (badgeHeight * 0.7));
 
-        // Draw Rank Badge (Top Left)
-        ctx.fillStyle = 'rgba(255, 215, 0, 0.9)'; // Gold-ish
-        roundRect(ctx, 10, 10, 40, 40, 5);
+        // --- RANK BADGE (Top Left) ---
+        const rankSize = imageSize / 7;
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.9)'; 
+        roundRect(ctx, 5, 5, rankSize * 1.2, rankSize, 3);
         ctx.fill();
+        
         ctx.fillStyle = 'black';
-        ctx.font = 'bold 20px "Courier New"';
-        ctx.fillText(`${index + 1}`, 30, 37);
+        ctx.font = `bold ${Math.floor(rankSize * 0.6)}px "Courier New"`;
+        ctx.fillText(`${globalRank}`, 5 + (rankSize * 0.6), 5 + (rankSize * 0.7));
 
         const badgeBuffer = badgeCanvas.toBuffer('image/png');
 
@@ -137,12 +157,11 @@ async function createRankedChartImage(albums: any[], gridWidth: number, gridHeig
         }
     })
     .composite(compositeOperations)
-    .png()
+    .png({ quality: 80, compressionLevel: 9 }) // Compression helps Discord upload limits
     .toBuffer();
 }
 
-// Helper for rounded rectangles in Canvas
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Helper for rounded rectangles (No changes needed)
 function roundRect(ctx: any, x: number, y: number, width: number, height: number, radius: number) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
@@ -157,7 +176,6 @@ function roundRect(ctx: any, x: number, y: number, width: number, height: number
     ctx.closePath();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function updateResponse(interaction: any, data: any) {
     await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
         method: 'PATCH',

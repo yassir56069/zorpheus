@@ -11,6 +11,28 @@ if (!token || !applicationId) {
 
 const commands = [
 
+  //#region Admin: Canonize albums
+  {
+    "name": "canonize-album",
+    "description": "[Admin] Link a duplicate album slug to the main canonical slug.",
+    "default_member_permissions": "8", 
+    "options":[
+      {
+        "name": "target-slug",
+        "description": "The duplicate slug that should be hidden/merged.",
+        "type": 3,
+        "required": true
+      },
+      {
+        "name": "canon-slug",
+        "description": "The main canonical slug to link it to.",
+        "type": 3,
+        "required": true
+      }
+    ]
+  },
+  //#endregion
+
   //#region Ping
   {
     name: 'ping',
@@ -69,28 +91,6 @@ const commands = [
   },
   //#endregion
 
-  //#region Admin: Canonize albums
-  {
-    "name": "canonize-album",
-    "description": "[Admin] Link a duplicate album slug to the main canonical slug.",
-    "default_member_permissions": "8", 
-    "options":[
-      {
-        "name": "target-slug",
-        "description": "The duplicate slug that should be hidden/merged.",
-        "type": 3,
-        "required": true
-      },
-      {
-        "name": "canon-slug",
-        "description": "The main canonical slug to link it to.",
-        "type": 3,
-        "required": true
-      }
-    ]
-  },
-  //#endregion
-
   //#region Top Albums 
   {
     "name": "top-albums",
@@ -117,7 +117,7 @@ const commands = [
   },
   //#endregion
 
-    //#region Donor Albums 
+  //#region Donor Albums 
   {
     "name": "donor-albums",
     "description": "View albums that are missing a few ratings to be ranked.",
@@ -327,9 +327,13 @@ const commands = [
         "type": 3, 
         "required": false,
         "choices": [
-          { "name": "3x3", "value": "3x3" },
-          { "name": "4x4", "value": "4x4" },
-          { "name": "5x5", "value": "5x5" }
+          { name: '3x3', value: '3x3' },
+          { name: '4x4', value: '4x4' },
+          { name: '5x5 (default)', value: '5x5' },
+          { name: '8x5', value: '8x5' },
+          { name: '10x10', value: '10x10' },
+          { name: '4x8', value: '4x8' },
+          { name: '15x6', value: '15x6' },
         ]
       },
       {

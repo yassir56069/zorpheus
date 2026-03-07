@@ -15,7 +15,7 @@ import { verifyDiscordRequest } from '@/utils/verify-discord-request';
 import { handlePing } from '@/app/commands/ping';
 import { handleRate } from '@/app/commands/rate';
 import { handleImport } from '@/app/commands/import';
-import { handleAlbum, handleAlbumSearch, renderAlbumEmbed, editInteractionResponse } from '@/app/commands/album';
+import { handleAlbum, handleAlbumSearch, renderAlbumEmbed, editInteractionResponse, handleCanonizeAlbum } from '@/app/commands/album';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
 import { handleFm, handleFmResync } from '@/app/commands/fm'; 
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
@@ -70,6 +70,8 @@ export async function POST(req: Request) {
                 return handleRate(interaction as APIChatInputApplicationCommandInteraction);
             case 'import': 
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
+            case 'canonize-album':
+                return handleCanonizeAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album':
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':

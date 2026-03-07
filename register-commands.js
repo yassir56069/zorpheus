@@ -63,9 +63,31 @@ const commands = [
         name: 'slug-value',
         description: 'Exact slug format (artistname-albumname-year). No spaces. Try /album-search if unsure.',
         type: 3, // STRING
-        required: true,
+        required: false,
       },
     ],
+  },
+  //#endregion
+
+  //#region Admin: Canonize albums
+  {
+    "name": "canonize-album",
+    "description": "[Admin] Link a duplicate album slug to the main canonical slug.",
+    "default_member_permissions": "8", 
+    "options":[
+      {
+        "name": "target-slug",
+        "description": "The duplicate slug that should be hidden/merged.",
+        "type": 3,
+        "required": true
+      },
+      {
+        "name": "canon-slug",
+        "description": "The main canonical slug to link it to.",
+        "type": 3,
+        "required": true
+      }
+    ]
   },
   //#endregion
 

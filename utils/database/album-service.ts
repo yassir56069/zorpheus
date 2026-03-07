@@ -422,6 +422,65 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
     return result.rows as unknown as UserRating[];
 }
 
+/**
+ * Links a duplicate album slug to a canonical album slug.
+ */
+export async function canonizeAlbum(targetSlug: string, canonSlug: string): Promise<{ success: boolean; message: string }> {
+    if (targetSlug === canonSlug) {
+        return { success: false, message: "Target and canonical slugs cannot be the same." };
+    }
+
+    try {
+        // 1. Retrieve the canonical album
+        const canonRes = await db.execute({
+            sql: `SELECT id, canonicalId FROM albums WHERE slug = ?`,
+            args: [canonSlug]
+        });
+        
+        if (canonRes.rows.length === 0) {
+            return { success: false, message: `Canonical album \`${canonSlug}\` not found in the database.` };
+        }
+        
+        // Resolve ultimate canonical ID in case the canonSlug provided is ITSELF pointing to a canonical album
+        const canonId = (canonRes.rows[0].canonicalId || canonRes.rows[0].id) as number;
+
+        // 2. Retrieve the target (duplicate) album
+        const targetRes = await db.execute({
+            sql: `SELECT id, canonicalId FROM albums WHERE slug = ?`,
+            args: [targetSlug]
+        });
+        
+        if (targetRes.rows.length === 0) {
+            return { success: false, message: `Target album \`${targetSlug}\` not found in the database.` };
+        }
+        
+        const targetId = targetRes.rows[0].id as number;
+
+        // Check if they are already pointing to the same place
+        if (canonId === targetId || canonId === targetRes.rows[0].canonicalId) {
+            return { success: false, message: "These slugs already resolve to the same canonical album." };
+        }
+
+        // 3. Link the target album to the resolved canonical ID
+        await db.execute({
+            sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
+            args: [canonId, targetId]
+        });
+
+        // 4. Flatten the tree: If any other albums were pointing to the target, update them to point to the new canonId
+        await db.execute({
+            sql: `UPDATE albums SET canonicalId = ? WHERE canonicalId = ?`,
+            args: [canonId, targetId]
+        });
+
+        return { success: true, message: `Successfully linked \`${targetSlug}\` to canonical album \`${canonSlug}\`.` };
+    } catch (error) {
+        console.error("Error in canonizeAlbum:", error);
+        return { success: false, message: "A database error occurred while trying to canonize the album." };
+    }
+}
+
+
 //#region Helper Methods
 function normalizeString(str: string): string {
     const normalized = str.toLowerCase().replace(/[\s\p{P}]/gu, '');

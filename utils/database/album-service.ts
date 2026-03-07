@@ -36,8 +36,9 @@ export async function getTopAlbums(options: {
     const { page = 1, limit = 20, days } = options;
     const offset = (page - 1) * limit;
 
+    // Notice we changed 'WHERE' to 'AND' here, because we're going to hardcode a WHERE clause for the score
     const dateFilter = days 
-        ? `WHERE r.createdAt >= datetime('now', '-${days} days')` 
+        ? `AND r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
     /* 
@@ -59,7 +60,8 @@ export async function getTopAlbums(options: {
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
-            ${dateFilter}
+            -- Filter out archived/0 ratings right here
+            WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
         AlbumSums AS (
@@ -86,9 +88,70 @@ export async function getTopAlbums(options: {
         LIMIT ? OFFSET ?
     `;
 
-    const result = await db.execute({ sql, args: [MIN_RATINGS_TO_RANK, limit, offset] });
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, limit, offset] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
+}
+
+/**
+ * Retrieves highly rated albums that are just shy of the minimum ratings threshold.
+ * Ordered by rating count descending, then by average score descending.
+ */
+export async function getDonorAlbums(options: {
+    page?: number;
+    limit?: number;
+    days?: number;
+}) {
+    const { page = 1, limit = 20, days } = options;
+    const offset = (page - 1) * limit;
+
+    // Notice we changed 'WHERE' to 'AND' here
+    const dateFilter = days 
+        ? `AND r.createdAt >= datetime('now', '-${days} days')` 
+        : '';
+
+    const sql = `
+        WITH CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        CombinedRatings AS (
+            SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            -- Filter out archived/0 ratings right here
+            WHERE r.score > 0 ${dateFilter}
+            GROUP BY ca.canonical_slug, r.userId
+        ),
+        AlbumSums AS (
+            SELECT 
+                albumId, 
+                SUM(score) as sumScore, 
+                COUNT(userId) as ratingCount,
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+            FROM CombinedRatings
+            GROUP BY albumId
+        )
+        SELECT 
+            a.name, 
+            a.artistName, 
+            a.slug,
+            a.coverArtUrl,
+            s.ratingCount,
+            s.avgScore,
+            (s.avgScore / 2.0) as weightedScore
+        FROM AlbumSums s
+        JOIN albums a ON s.albumId = a.slug
+        WHERE s.ratingCount < ? AND s.ratingCount > 0
+        ORDER BY s.ratingCount DESC, s.avgScore DESC
+        LIMIT ? OFFSET ?
+    `;
+
+    // Pass the MIN_RATINGS_TO_RANK so we only get albums strictly below the threshold
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, limit, offset] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return result.rows as any
 }
 
 export async function getOrCreateAlbum(albumData: {

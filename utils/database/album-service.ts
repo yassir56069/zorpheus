@@ -366,8 +366,8 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- ADDED: Support truncated slugs by falling back to a LIKE wildcard
-            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+            -- NEW FIX: Simplifies into a single LIKE statement that processes our % wildcard perfectly
+            WHERE a.slug LIKE ?
             LIMIT 1
         )
         SELECT 
@@ -379,8 +379,8 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
 
-    // ADDED: Pass the extra params, dynamically adding '%' for the LIKE statement
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
+    // NEW FIX: Pass only the threshold and the slug
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug] });
     if (result.rows.length === 0) return null;
     
     return result.rows[0] as unknown as AlbumStats;
@@ -474,8 +474,8 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- ADDED: Support truncated slugs
-            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+            -- NEW FIX: Single LIKE statement
+            WHERE a.slug LIKE ?
             LIMIT 1
         ),
         CanonicalAlbums AS (
@@ -495,8 +495,8 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         ORDER BY score DESC
     `;
     
-    // ADDED: Pass the extra params
-    const result = await db.execute({ sql, args: [slug, slug, slug + '%'] });
+    // NEW FIX: Only requires a single parameter
+    const result = await db.execute({ sql, args:[slug] });
     return result.rows as unknown as UserRating[];
 }
 

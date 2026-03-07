@@ -1,5 +1,8 @@
 import { db } from '@/utils/db';
 
+// Easily adjustable minimum ratings threshold for ranking
+export const MIN_RATINGS_TO_RANK = 5;
+
 export interface TopAlbumResult extends AlbumStats {
     totalScore: number;
 }
@@ -37,9 +40,17 @@ export async function getTopAlbums(options: {
         ? `WHERE r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
+    /* 
+    -- OLD POPULARITY-BASED RANKING LOGIC (KEPT FOR REFERENCE) --
+    WITH UserStats AS (SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings),
+    ...
+    SELECT 
+        ...
+        (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
+    */
+
     const sql = `
-        WITH UserStats AS (SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings),
-        CanonicalAlbums AS (
+        WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
@@ -52,7 +63,11 @@ export async function getTopAlbums(options: {
             GROUP BY ca.canonical_slug, r.userId
         ),
         AlbumSums AS (
-            SELECT albumId, SUM(score) as sumScore, COUNT(userId) as ratingCount
+            SELECT 
+                albumId, 
+                SUM(score) as sumScore, 
+                COUNT(userId) as ratingCount,
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
             FROM CombinedRatings
             GROUP BY albumId
         )
@@ -60,19 +75,22 @@ export async function getTopAlbums(options: {
             a.name, 
             a.artistName, 
             a.slug,
-            a.coverArtUrl, -- Added this
+            a.coverArtUrl,
             s.ratingCount,
-            (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
+            s.avgScore,
+            (s.avgScore / 2.0) as weightedScore -- Kept property name incase your UI relies on it
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
-        ORDER BY weightedScore DESC
+        WHERE s.ratingCount >= ?
+        ORDER BY s.avgScore DESC, s.ratingCount DESC
         LIMIT ? OFFSET ?
     `;
 
-    const result = await db.execute({ sql, args: [limit, offset] });
+    const result = await db.execute({ sql, args: [MIN_RATINGS_TO_RANK, limit, offset] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }
+
 export async function getOrCreateAlbum(albumData: {
     name: string;
     artistName: string;
@@ -225,7 +243,6 @@ export async function getOrCreateAlbum(albumData: {
     }
 }
 
-// Added optional releaseYear so cover art syncs properly attach to the canonical slug
 export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string, releaseYear?: string | null) {
     const slug = generateSlug(artistName, albumName, releaseYear);
 
@@ -250,10 +267,7 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
  */
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
     const sql = `
-        WITH UserStats AS (
-            SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings
-        ),
-        CanonicalAlbums AS (
+        WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
@@ -271,22 +285,21 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount
+                COUNT(userId) as ratingCount,
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
             FROM CombinedRatings 
             GROUP BY albumId
         ),
         RankedAlbums AS (
             SELECT 
                 albumId, 
-                (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) as avgScore, 
-                ratingCount, 
                 RANK() OVER(
-                    ORDER BY (CAST(sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) DESC, ratingCount DESC
+                    ORDER BY avgScore DESC, ratingCount DESC
                 ) as rank
             FROM AlbumSums
+            WHERE ratingCount >= ?
         ),
         TargetAlbum AS (
-            -- Finds the canonical slug regardless of whether the user queried the duplicate or the canonical album
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
@@ -294,13 +307,15 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         )
         SELECT 
             a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
-            r.avgScore, r.ratingCount, r.rank
+            s.avgScore, s.ratingCount, r.rank
         FROM albums a
         JOIN TargetAlbum t ON a.slug = t.target_slug
+        LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
 
-    const result = await db.execute({ sql, args: [slug] });
+    // Pass the threshold followed by the query slug
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug] });
     if (result.rows.length === 0) return null;
     
     return result.rows[0] as unknown as AlbumStats;
@@ -314,8 +329,6 @@ export async function searchAlbums(query: string) {
     const searchTerm = `%${cleanQuery}%`;
     const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
     
-    // Replaces all vowels with SQLite wildcards to effortlessly ignore accent diacritics
-    // Also replaces spaces with % to allow missing punctuation
     const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
     const forgivingQuery = `%${forgivingPattern}%`;
     
@@ -324,10 +337,8 @@ export async function searchAlbums(query: string) {
     const conditions: string[] =[];
     const args: string[] =[];
 
-    // 1. SELECT clause MAX(CASE...) arguments for scoring matches
     args.push(searchTerm, searchTerm, looseQuery, searchTerm);
 
-    // 2. Base Exactish conditions (Allows matching 'Artist Album')
     conditions.push(
         `a.name LIKE ?`,
         `a.artistName LIKE ?`,
@@ -337,7 +348,6 @@ export async function searchAlbums(query: string) {
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
-    // 3. Forgiving Accents conditions
     conditions.push(
         `a.name LIKE ?`,
         `a.artistName LIKE ?`,
@@ -347,12 +357,10 @@ export async function searchAlbums(query: string) {
     );
     args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
 
-    // 4. Word-by-word chunking: Require all words to be present SOMEWHERE
     if (words.length > 1) {
         const wordConditions = words.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
         conditions.push(`(${wordConditions.join(' AND ')})`);
         for (const word of words) {
-            // Give individual words the forgiving diacritic treatment too
             const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
             args.push(w, w, w);
         }
@@ -422,16 +430,12 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
     return result.rows as unknown as UserRating[];
 }
 
-/**
- * Links a duplicate album slug to a canonical album slug.
- */
 export async function canonizeAlbum(targetSlug: string, canonSlug: string): Promise<{ success: boolean; message: string }> {
     if (targetSlug === canonSlug) {
         return { success: false, message: "Target and canonical slugs cannot be the same." };
     }
 
     try {
-        // 1. Retrieve the canonical album
         const canonRes = await db.execute({
             sql: `SELECT id, canonicalId FROM albums WHERE slug = ?`,
             args: [canonSlug]
@@ -441,10 +445,8 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
             return { success: false, message: `Canonical album \`${canonSlug}\` not found in the database.` };
         }
         
-        // Resolve ultimate canonical ID in case the canonSlug provided is ITSELF pointing to a canonical album
         const canonId = (canonRes.rows[0].canonicalId || canonRes.rows[0].id) as number;
 
-        // 2. Retrieve the target (duplicate) album
         const targetRes = await db.execute({
             sql: `SELECT id, canonicalId FROM albums WHERE slug = ?`,
             args: [targetSlug]
@@ -456,18 +458,15 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
         
         const targetId = targetRes.rows[0].id as number;
 
-        // Check if they are already pointing to the same place
         if (canonId === targetId || canonId === targetRes.rows[0].canonicalId) {
             return { success: false, message: "These slugs already resolve to the same canonical album." };
         }
 
-        // 3. Link the target album to the resolved canonical ID
         await db.execute({
             sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
             args: [canonId, targetId]
         });
 
-        // 4. Flatten the tree: If any other albums were pointing to the target, update them to point to the new canonId
         await db.execute({
             sql: `UPDATE albums SET canonicalId = ? WHERE canonicalId = ?`,
             args: [canonId, targetId]
@@ -479,7 +478,6 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
         return { success: false, message: "A database error occurred while trying to canonize the album." };
     }
 }
-
 
 //#region Helper Methods
 function normalizeString(str: string): string {

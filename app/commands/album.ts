@@ -199,7 +199,6 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
 export async function renderAlbumEmbed(slug: string) {
     const album = await getAlbumWithStats(slug);
 
-
     if (!album) {
         return { data: { content: `❌ Could not find album \`${slug}\` in database.` } };
     }
@@ -212,7 +211,6 @@ export async function renderAlbumEmbed(slug: string) {
             const img = data.album?.image?.find((i: any) => i.size === 'extralarge') || data.album?.image?.find((i: any) => i.size === 'large');
             if (img?.['#text']) {
                 coverArtUrl = img['#text'];
-                // Use the resolved canonical slug
                 await updateAlbumCoverArt(album.slug, coverArtUrl as string);
             }
         } catch (e) { 
@@ -220,15 +218,16 @@ export async function renderAlbumEmbed(slug: string) {
         }
     }
 
-    // Use the resolved canonical slug
     const ratings = await getAlbumRatings(album.slug);
     
-    // Standardize the display:
     const ratingsDisplay = ratings.length > 0 
         ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
         : "No ratings yet.";
 
     const displayScore = album.avgScore != null ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
+    
+    // Evaluate display to prevent putting a pound sign on "Unranked" (e.g., #Unranked)
+    const displayRank = album.rank ? `#${album.rank}` : 'Unranked';
 
     return {
         data: {
@@ -236,7 +235,7 @@ export async function renderAlbumEmbed(slug: string) {
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              `📊 **Average Score:** \`${displayScore}\`\n` + 
-                             `🏆 **Overall Rank:** \`#${album.rank || 'Unranked'}\`\n` + 
+                             `🏆 **Overall Rank:** \`${displayRank}\`\n` + 
                              `👥 **Total Ratings:** \`${album.ratingCount || 0}\`\n\n` +
                              `**Community Ratings:**\n${ratingsDisplay}`,
                 color: 0x3498db,
@@ -246,6 +245,7 @@ export async function renderAlbumEmbed(slug: string) {
         }
     };
 }
+
 
 
 export async function handleCanonizeAlbum(

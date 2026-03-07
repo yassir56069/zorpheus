@@ -73,7 +73,6 @@ export async function getTopAlbums(options: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }
-
 export async function getOrCreateAlbum(albumData: {
     name: string;
     artistName: string;
@@ -93,8 +92,8 @@ export async function getOrCreateAlbum(albumData: {
 
         if (existing.rows.length > 0) {
             const album = existing.rows[0];
+            
             // If this entry points to a canonical ID, RETURN the canonical album instead
-            // This ensures the bot pushes the new rating to the real release.
             if (album.canonicalId) {
                 const canonical = await db.execute({
                     sql: `SELECT * FROM albums WHERE id = ?`,
@@ -102,10 +101,56 @@ export async function getOrCreateAlbum(albumData: {
                 });
                 if (canonical.rows.length > 0) return canonical.rows[0];
             }
+
+            // --- SELF-HEALING LOGIC FOR EXISTING RECORDS ---
+            if (!album.releaseYear) {
+                // Case A: The existing album lacks a year. Check if a canonical version (with a year) exists.
+                const canonicalMatch = await db.execute({
+                    sql: `
+                        SELECT id, slug FROM albums 
+                        WHERE slug LIKE ? 
+                          AND releaseYear IS NOT NULL 
+                          AND canonicalId IS NULL
+                          AND id != ?
+                        ORDER BY releaseYear ASC
+                        LIMIT 1
+                    `,
+                    args: [`${baseSlug}-%`, album.id] 
+                });
+
+                if (canonicalMatch.rows.length > 0) {
+                    const newCanonicalId = canonicalMatch.rows[0].id as number;
+                    
+                    // Link this yearless album to the canonical one
+                    await db.execute({
+                        sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
+                        args: [newCanonicalId, album.id]
+                    });
+                    
+                    // Return the canonical one so the user's rating attaches to the right slug
+                    const canonical = await db.execute({
+                        sql: `SELECT * FROM albums WHERE id = ?`,
+                        args: [newCanonicalId]
+                    });
+                    if (canonical.rows.length > 0) return canonical.rows[0];
+                }
+            } else {
+                // Case B: The existing album HAS a release year. 
+                // Ensure any missing-year baseSlug points to it.
+                await db.execute({
+                    sql: `
+                        UPDATE albums 
+                        SET canonicalId = ? 
+                        WHERE slug = ? AND canonicalId IS NULL AND id != ?
+                    `,
+                    args: [album.id, baseSlug, album.id]
+                });
+            }
+
             return album;
         }
 
-        // 2. If no exact match exists AND year is missing, try to find a canonical match
+        // 2. If no exact match exists AND year is missing, try to find a canonical match beforehand
         let canonicalId: number | null = null;
         let canonicalSlug: string | null = null;
 
@@ -128,7 +173,7 @@ export async function getOrCreateAlbum(albumData: {
             }
         }
 
-        // 3. Insert the new album record (either standard, or pointing to a canonical ID)
+        // 3. Insert the new album record
         const result = await db.execute({
             sql: `
                 INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, canonicalId, createdAt)
@@ -149,8 +194,22 @@ export async function getOrCreateAlbum(albumData: {
             ]
         });
 
-        // 4. If we assigned a canonicalId, return the canonical version 
-        // so the caller uses the correct slug for the rating insert.
+        const savedAlbum = result.rows[0];
+
+        // 4. Backwards healing: If we just inserted a new album WITH a releaseYear, 
+        // ensure any existing yearless base slug is caught and linked to it.
+        if (savedAlbum.releaseYear && !canonicalId) {
+            await db.execute({
+                sql: `
+                    UPDATE albums 
+                    SET canonicalId = ? 
+                    WHERE slug = ? AND canonicalId IS NULL AND id != ?
+                `,
+                args:[savedAlbum.id, baseSlug, savedAlbum.id]
+            });
+        }
+
+        // 5. If we assigned a canonicalId during insert, return the canonical version
         if (canonicalSlug) {
             const canonical = await db.execute({
                 sql: `SELECT * FROM albums WHERE slug = ?`,
@@ -159,7 +218,7 @@ export async function getOrCreateAlbum(albumData: {
             if (canonical.rows.length > 0) return canonical.rows[0];
         }
 
-        return result.rows[0];
+        return savedAlbum;
     } catch (e) {
         console.error("Error in getOrCreateAlbum:", e);
         return null;

@@ -366,8 +366,8 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- NEW FIX: Simplifies into a single LIKE statement that processes our % wildcard perfectly
-            WHERE a.slug LIKE ?
+            -- ADDED: Support truncated slugs by falling back to a LIKE wildcard
+            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
             LIMIT 1
         )
         SELECT 
@@ -379,8 +379,8 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
 
-    // NEW FIX: Pass only the threshold and the slug
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug] });
+    // ADDED: Pass the extra params, dynamically adding '%' for the LIKE statement
+    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     
     return result.rows[0] as unknown as AlbumStats;
@@ -391,19 +391,19 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
  */
 export async function searchAlbums(query: string) {
     const cleanQuery = query.trim().replace(/\s+/g, ' ');
+    if (!cleanQuery) return[];
+    
     const searchTerm = `%${cleanQuery}%`;
     const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
-    
-    const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
-    const forgivingQuery = `%${forgivingPattern}%`;
-    
     const words = cleanQuery.split(' ').filter(w => w.length > 0);
 
     const conditions: string[] =[];
     const args: string[] =[];
 
+    // The first 4 args apply to the SELECT statement's matchScore
     args.push(searchTerm, searchTerm, looseQuery, searchTerm);
 
+    // Standard exact/loose matches (5 items)
     conditions.push(
         `a.name LIKE ?`,
         `a.artistName LIKE ?`,
@@ -413,19 +413,28 @@ export async function searchAlbums(query: string) {
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
-    conditions.push(
-        `a.name LIKE ?`,
-        `a.artistName LIKE ?`,
-        `a.slug LIKE ?`,
-        `a.artistName || ' ' || a.name LIKE ?`,
-        `a.name || ' ' || a.artistName LIKE ?`
-    );
-    args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
+    // FIX: Only do forgiving queries if the string is reasonably long.
+    // This prevents catastrophic wildcard matches like `%__%` or `%x_%` which crash SQLite.
+    if (cleanQuery.length >= 3) {
+        const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
+        const forgivingQuery = `%${forgivingPattern}%`;
+        
+        conditions.push(
+            `a.name LIKE ?`,
+            `a.artistName LIKE ?`,
+            `a.slug LIKE ?`,
+            `a.artistName || ' ' || a.name LIKE ?`,
+            `a.name || ' ' || a.artistName LIKE ?`
+        );
+        args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
+    }
 
-    if (words.length > 1) {
-        const wordConditions = words.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
+    // FIX: Only apply word splitting if the individual words are long enough
+    const meaningfulWords = words.filter(w => w.length >= 3);
+    if (meaningfulWords.length > 1) {
+        const wordConditions = meaningfulWords.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
         conditions.push(`(${wordConditions.join(' AND ')})`);
-        for (const word of words) {
+        for (const word of meaningfulWords) {
             const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
             args.push(w, w, w);
         }
@@ -474,8 +483,8 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- NEW FIX: Single LIKE statement
-            WHERE a.slug LIKE ?
+            -- ADDED: Support truncated slugs
+            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
             LIMIT 1
         ),
         CanonicalAlbums AS (
@@ -495,8 +504,8 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         ORDER BY score DESC
     `;
     
-    // NEW FIX: Only requires a single parameter
-    const result = await db.execute({ sql, args:[slug] });
+    // ADDED: Pass the extra params
+    const result = await db.execute({ sql, args: [slug, slug, slug + '%'] });
     return result.rows as unknown as UserRating[];
 }
 

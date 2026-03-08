@@ -160,7 +160,6 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
 
     const searchTerm = queryOption.value;
 
-    // --- ADDED: Early validation for search length ---
     if (searchTerm.length > 100) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
@@ -180,6 +179,23 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                 return;
             }
 
+            // FIX: Deduplicate truncated slugs to prevent Discord 400 Bad Request errors 
+            // from identical values (caused by artist names exceeding 100 chars).
+            const seenValues = new Set<string>();
+            const uniqueOptions =[];
+
+            for (const hit of hits) {
+                const value = hit.slug.substring(0, 100);
+                if (!seenValues.has(value)) {
+                    seenValues.add(value);
+                    uniqueOptions.push({
+                        label: hit.name.substring(0, 100),
+                        description: `${hit.artistName} ${hit.releaseYear ? `(${hit.releaseYear})` : ''}`.substring(0, 100),
+                        value: value
+                    });
+                }
+            }
+
             await editInteractionResponse(interaction.token, {
                 content: `🔍 Found **${hits.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
                 components:[{
@@ -188,12 +204,7 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                         type: ComponentType.StringSelect,
                         custom_id: `album_search_select`,
                         placeholder: "Choose an album to view",
-                        options: hits.map(hit => ({
-                            label: hit.name.substring(0, 100),
-                            description: `${hit.artistName} ${hit.releaseYear ? `(${hit.releaseYear})` : ''}`.substring(0, 100),
-                            // ADDED: Fix Discord 100-character limit on option values
-                            value: hit.slug.substring(0, 100)
-                        }))
+                        options: uniqueOptions
                     }]
                 }]
             });

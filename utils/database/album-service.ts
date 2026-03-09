@@ -342,6 +342,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
                 MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            WHERE r.score > 0 -- ADDED: Filter out 0 scores entirely so they don't count
             GROUP BY ca.canonical_slug, r.userId
         ),
         AlbumSums AS (

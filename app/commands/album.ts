@@ -58,6 +58,17 @@ function titleCase(str: string): string {
     );
 }
 
+function ansiRating(score: number | null) {
+    if (score == null) {
+        return "```ansi\nN/A\n```";
+    }
+
+    const rating = (Number(score) / 2).toFixed(2);
+
+    return `\`\`\`ansi
+\u001b[2;40m\u001b[2;33m\u001b[2;34m 📊 Average Rating: \u001b[1;34m\u001b[1;33m${rating}\u001b[0m\u001b[1;34m\u001b[1;40m\u001b[0m\u001b[2;34m\u001b[2;40m\u001b[0m\u001b[2;33m\u001b[2;40m\u001b[0m\u001b[2;40m\u001b[0m
+\`\`\``;
+}
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
@@ -259,7 +270,7 @@ export async function renderAlbumEmbed(slug: string) {
         ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
         : ''; // If no genres, it won't render the line
 
-    const displayScore = album.avgScore != null ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
+    const displayScoreAnsi = ansiRating(album.avgScore);
     const displayRank = album.rank ? `#${album.rank}` : 'Unranked';
 
     return {
@@ -268,7 +279,7 @@ export async function renderAlbumEmbed(slug: string) {
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
-                             `📊 **Average Score:** \`${displayScore}\`\n` + 
+                                `\n${displayScoreAnsi}\n` +
                              `🏆 **Overall Rank:** \`${displayRank}\`\n` + 
                              `👥 **Total Ratings:** \`${album.ratingCount || 0}\`\n\n` +
                              `**Community Ratings:**\n${ratingsDisplay}`,

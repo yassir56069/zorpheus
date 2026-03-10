@@ -80,9 +80,9 @@ function formatAlbumStats(avgScore: number | null, rank: number | null, totalRat
     }
 
     return `\`\`\`ansi
-\u001b[2;34mAverage Rating: ${ratingColor}${ratingStr}\u001b[0m
-\u001b[2;34mOverall Rank  : ${rankColor}${rankDisplay}\u001b[0m
-\u001b[2;34mTotal Ratings : \u001b[1;34m${totalRatings}\u001b[0m
+\u001b[2;34m ⭐ Average Rating: ${ratingColor}${ratingStr}\u001b[0m
+\u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m
+\u001b[2;34m 👥 Total Ratings : \u001b[1;34m${totalRatings}\u001b[0m
 \`\`\``;
 }
 

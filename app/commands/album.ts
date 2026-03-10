@@ -305,7 +305,7 @@ export async function renderAlbumEmbed(slug: string) {
         }
     };
 }
-}
+
 
 
 

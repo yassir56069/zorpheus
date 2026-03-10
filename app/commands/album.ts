@@ -14,9 +14,8 @@ import {
     getOrCreateAlbum, 
     canonizeAlbum
 } from '@/utils/database/album-service';
-
 import { getUserLastFM } from '@/utils/database/user-service';
-
+import { getMergedAlbumGenres } from '@/utils/database/genre-service';
 
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
@@ -51,6 +50,14 @@ function getStars(score: number): string {
     const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
     return '★'.repeat(fullStars) + halfStar + '☆'.repeat(emptyStars);
 }
+
+function titleCase(str: string): string {
+    return str.replace(
+        /\w\S*/g,
+        (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+    );
+}
+
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
@@ -240,15 +247,19 @@ export async function renderAlbumEmbed(slug: string) {
         }
     }
 
+    // Fetch associated data
     const ratings = await getAlbumRatings(album.slug);
+    const genres = await getMergedAlbumGenres(album.slug);
     
     const ratingsDisplay = ratings.length > 0 
         ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
         : "No ratings yet.";
 
+    const genresDisplay = genres.length > 0
+        ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
+        : ''; // If no genres, it won't render the line
+
     const displayScore = album.avgScore != null ? (Number(album.avgScore) / 2).toFixed(2) : 'N/A';
-    
-    // Evaluate display to prevent putting a pound sign on "Unranked" (e.g., #Unranked)
     const displayRank = album.rank ? `#${album.rank}` : 'Unranked';
 
     return {
@@ -256,6 +267,7 @@ export async function renderAlbumEmbed(slug: string) {
             embeds:[{
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
+                             genresDisplay +
                              `📊 **Average Score:** \`${displayScore}\`\n` + 
                              `🏆 **Overall Rank:** \`${displayRank}\`\n` + 
                              `👥 **Total Ratings:** \`${album.ratingCount || 0}\`\n\n` +

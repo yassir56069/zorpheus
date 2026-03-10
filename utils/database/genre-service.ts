@@ -8,6 +8,47 @@ export const VALID_GENRES =[
     "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter"
 ];
 
+//#region Get Genres
+
+/**
+ * Fetches all genres associated with an album, intelligently merging 
+ * genres from the target slug and any of its canonical/alias siblings.
+ */
+export async function getMergedAlbumGenres(slug: string): Promise<string[]> {
+    const sql = `
+        WITH TargetAlbum AS (
+            SELECT COALESCE(c.slug, a.slug) as target_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            -- Support truncated slugs by falling back to a LIKE wildcard
+            WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+            LIMIT 1
+        ),
+        CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        )
+        SELECT DISTINCT g.genreName
+        FROM album_genres ag
+        JOIN CanonicalAlbums ca ON ag.albumId = ca.original_slug
+        JOIN TargetAlbum t ON ca.canonical_slug = t.target_slug
+        JOIN genres g ON ag.genreId = g.genreId
+        ORDER BY g.genreName ASC;
+    `;
+
+    try {
+        const result = await db.execute({ sql, args:[slug, slug, slug + '%'] });
+        return result.rows.map(row => row.genreName as string);
+    } catch (error) {
+        console.error(`[DB Error] Fetching genres for album ${slug}:`, error);
+        return[];
+    }
+}
+
+//#endregion
+
+
 /**
  * Maps messy Last.fm tags to our strict 29-genre taxonomy.
  * Returns null if the tag doesn't fit into our taxonomy.
@@ -135,4 +176,7 @@ export async function linkAlbumGenres(albumSlug: string, lastfmTags: string[], u
             console.error(`[DB Error] Failed to link genre ${genreName} to album ${albumSlug}:`, error);
         }
     }
+
+
+
 }

@@ -58,17 +58,34 @@ function titleCase(str: string): string {
     );
 }
 
-function ansiRating(score: number | null) {
-    if (score == null) {
-        return "```ansi\nN/A\n```";
+function formatAlbumStats(avgScore: number | null, rank: number | null, totalRatings: number): string {
+    const rawRating = avgScore != null ? (Number(avgScore) / 2) : null;
+    const ratingStr = rawRating !== null ? rawRating.toFixed(2) : "N/A";
+    const rankDisplay = rank ? `#${rank}` : "Unranked";
+
+    // 1. Determine Rating Color (Bold is \u001b[1m)
+    // Red: 31, Green: 32, Yellow: 33
+    let ratingColor = "\u001b[1;33m"; // Default Yellow
+    if (rawRating !== null) {
+        if (rawRating >= 4.0) ratingColor = "\u001b[1;32m";      // Green
+        else if (rawRating < 3.0) ratingColor = "\u001b[1;31m";  // Red
     }
 
-    const rating = (Number(score) / 2).toFixed(2);
+    // 2. Determine Rank Color
+    // Yellow: 33, Pink/Magenta: 35
+    let rankColor = "\u001b[1;34m"; // Default Blue
+    if (rank !== null) {
+        if (rank <= 10) rankColor = "\u001b[1;35m";       // Hot Pink
+        else if (rank <= 50) rankColor = "\u001b[1;33m";  // Yellow
+    }
 
     return `\`\`\`ansi
-\u001b[2;40m\u001b[2;33m\u001b[2;34m 📊 Average Rating: \u001b[1;34m\u001b[1;33m${rating}\u001b[0m\u001b[1;34m\u001b[1;40m\u001b[0m\u001b[2;34m\u001b[2;40m\u001b[0m\u001b[2;33m\u001b[2;40m\u001b[0m\u001b[2;40m\u001b[0m
+\u001b[2;34mAverage Rating: ${ratingColor}${ratingStr}\u001b[0m
+\u001b[2;34mOverall Rank  : ${rankColor}${rankDisplay}\u001b[0m
+\u001b[2;34mTotal Ratings : \u001b[1;34m${totalRatings}\u001b[0m
 \`\`\``;
 }
+
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
@@ -270,25 +287,24 @@ export async function renderAlbumEmbed(slug: string) {
         ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
         : ''; // If no genres, it won't render the line
 
-    const displayScoreAnsi = ansiRating(album.avgScore);
-    const displayRank = album.rank ? `#${album.rank}` : 'Unranked';
+    const statsBlock = formatAlbumStats(album.avgScore, album.rank, album.ratingCount || 0);
 
     return {
         data: {
             embeds:[{
                 title: `${album.artistName} - ${album.name}`,
+                // Note: removed the old separate fields and replaced with statsBlock
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
-                                `\n${displayScoreAnsi}\n` +
-                             `🏆 **Overall Rank:** \`${displayRank}\`\n` + 
-                             `👥 **Total Ratings:** \`${album.ratingCount || 0}\`\n\n` +
-                             `**Community Ratings:**\n${ratingsDisplay}`,
+                             statsBlock +
+                             `\n**Community Ratings:**\n${ratingsDisplay}`,
                 color: 0x3498db,
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
                 footer: { text: `Slug: ${album.slug}` }
             }]
         }
     };
+}
 }
 
 

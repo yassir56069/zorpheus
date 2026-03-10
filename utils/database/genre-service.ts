@@ -1,0 +1,138 @@
+// utils/database/genre-service.ts
+import { db } from '@/utils/db';
+
+export const VALID_GENRES =[
+    "folk", "regional", "emo", "country", "blues", "funk", "soul", "jazz", "classical",
+    "hip hop", "electronic", "rock", "pop", "vaporwave", "j-pop", "neo-psychedelia",
+    "slowcore", "reggae", "punk", "post-punk", "progressive rock", "art rock", "shoegaze",
+    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter"
+];
+
+/**
+ * Maps messy Last.fm tags to our strict 29-genre taxonomy.
+ * Returns null if the tag doesn't fit into our taxonomy.
+ */
+export function mapLastFmTagToGenre(tag: string): string | null {
+    const t = tag.toLowerCase().trim();
+
+    // 1. Check strict rules & aliases
+    const EXACT_MAPPINGS: Record<string, string> = {
+        "folk rock": "folk",
+        "midwestern emo": "emo",
+        "midwest emo": "emo",
+        "trap": "hip hop",
+        "synth pop": "neo-psychedelia",
+        "synthpop": "neo-psychedelia",
+        "post-hardcore": "post-punk",
+        "post hardcore": "post-punk",
+        "hip-hop": "hip hop",
+        "hiphop": "hip hop",
+        "rap": "hip hop",
+        "jpop": "j-pop",
+        "j pop": "j-pop",
+        "prog rock": "progressive rock",
+        "alt rock": "alternative rock",
+        "rnb": "soul",
+        "r&b": "soul",
+        "edm": "electronic",
+        "idm": "electronic",
+        "house": "electronic",
+        "techno": "electronic",
+        "indie": "indie rock",
+    };
+
+    if (EXACT_MAPPINGS[t]) return EXACT_MAPPINGS[t];
+    if (VALID_GENRES.includes(t)) return t;
+
+    // 2. Substring fallbacks (Order is extremely important here!)
+    
+    // Sub-rocks & Punks
+    if (t.includes("post-rock")) return "post-rock";
+    if (t.includes("post-punk")) return "post-punk";
+    if (t.includes("progressive rock") || t.includes("prog")) return "progressive rock";
+    if (t.includes("art rock")) return "art rock";
+    if (t.includes("indie rock")) return "indie rock";
+    if (t.includes("alternative rock") || t.includes("alt-rock") || t.includes("alternative")) return "alternative rock";
+    if (t.includes("shoegaze")) return "shoegaze";
+    if (t.includes("punk")) return "punk"; 
+    
+    // Broad catch-alls
+    if (t.includes("metal")) return "metal"; // Catches "sludge metal", "black metal"
+    if (t.includes("folk")) return "folk";
+    if (t.includes("emo")) return "emo";
+    if (t.includes("jazz")) return "jazz";
+    if (t.includes("classical")) return "classical";
+    if (t.includes("hip hop") || t.includes("rap")) return "hip hop";
+    if (t.includes("electronic") || t.includes("electro")) return "electronic";
+    
+    if (t.includes("pop")) {
+        if (t.includes("j-pop") || t.includes("jpop")) return "j-pop";
+        if (t.includes("synth") || t.includes("dream")) return "neo-psychedelia"; // user rule for synth pop
+        return "pop";
+    }
+    
+    if (t.includes("rock")) return "rock"; // Catch-all for "glam-rock", "hard rock", etc.
+    
+    if (t.includes("country")) return "country";
+    if (t.includes("blues")) return "blues";
+    if (t.includes("soul")) return "soul";
+    if (t.includes("funk")) return "funk";
+    if (t.includes("reggae")) return "reggae";
+    if (t.includes("vaporwave")) return "vaporwave";
+    if (t.includes("slowcore")) return "slowcore";
+    if (t.includes("experimental")) return "experimental";
+    if (t.includes("singer-songwriter")) return "singer-songwriter";
+
+    // Tag is entirely irrelevant to our database
+    return null;
+}
+
+/**
+ * Takes Last.fm tags, maps them, and associates them with an album in the DB.
+ */
+export async function linkAlbumGenres(albumSlug: string, lastfmTags: string[], userId: string) {
+    // 1. Filter and map
+    const mappedGenres = new Set<string>();
+    for (const tag of lastfmTags) {
+        const mapped = mapLastFmTagToGenre(tag);
+        if (mapped) mappedGenres.add(mapped);
+    }
+
+    if (mappedGenres.size === 0) return;
+
+    // 2. Process valid genres into the database
+    for (const genreName of mappedGenres) {
+        try {
+            // Get or create genre (source 0 = user submitted as requested)
+            const genreRes = await db.execute({
+                sql: `SELECT genreId FROM genres WHERE genreName = ?`,
+                args: [genreName]
+            });
+
+            let genreId: number;
+
+            if (genreRes.rows.length === 0) {
+                const insertRes = await db.execute({
+                    sql: `INSERT INTO genres (genreName, source) VALUES (?, 0) RETURNING genreId`,
+                    args: [genreName]
+                });
+                genreId = insertRes.rows[0].genreId as number;
+            } else {
+                genreId = genreRes.rows[0].genreId as number;
+            }
+
+            // Link to album (source 1 = Last.fm, weight 1 = primary)
+            // DO NOTHING on conflict prevents duplicates per album
+            await db.execute({
+                sql: `
+                    INSERT INTO album_genres (albumId, genreId, weight, fromUser, source)
+                    VALUES (?, ?, 1, ?, 1)
+                    ON CONFLICT(albumId, genreId) DO NOTHING
+                `,
+                args:[albumSlug, genreId, userId]
+            });
+        } catch (error) {
+            console.error(`[DB Error] Failed to link genre ${genreName} to album ${albumSlug}:`, error);
+        }
+    }
+}

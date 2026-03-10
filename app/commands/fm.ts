@@ -8,25 +8,16 @@ import {
     ButtonStyle,
     APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
-import { getUserByDiscordId, getUserLastFM } from '@/utils/database/user-service';
+import { getUserLastFM } from '@/utils/database/user-service';
 import { Vibrant } from 'node-vibrant/node';
-import { syncAlbumCover } from '@/utils/database/album-service';
 
-// --- NEW HELPER FUNCTION ---
+// --- NEW IMPORTS ---
+import { syncAlbumCover, generateSlug } from '@/utils/database/album-service';
+import { linkAlbumGenres } from '@/utils/database/genre-service';
 
-/**
- * A robust, case-insensitive filter to remove " - Topic" from the end of an artist string.
- * Includes detailed logging for debugging.
- * @param artist The original artist name from Last.fm.
- * @returns The cleaned artist name.
- */
+// --- HELPER FUNCTION ---
 function cleanArtistName(artist: string): string {
-    // Log the function entry and the exact input it received.
     console.log(`[Artist Filter] Executing. Original artist: "${artist}"`);
-    
-    // This pattern specifically looks for " - Topic" at the VERY END of the string ($).
-    // It also accounts for optional trailing whitespace (\s*) and an optional trailing hyphen (-?).
-    // The 'i' flag makes it case-insensitive.
     const topicPattern = /\s-\sTopic\s*-?$/i;
 
     if (topicPattern.test(artist)) {
@@ -38,8 +29,6 @@ function cleanArtistName(artist: string): string {
         return artist;
     }
 }
-
-// --- EXISTING HELPER FUNCTIONS (UNCHANGED) ---
 
 async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) {
@@ -71,24 +60,21 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
     try {
         const musicBrainzUrl = `https://musicbrainz.org/ws/2/release/?query=release:${encodeURIComponent(album)}%20AND%20artist:${encodeURIComponent(artist)}&fmt=json`;
         const mbResponse = await fetch(musicBrainzUrl, { headers: { 'User-Agent': userAgent } });
-        if (!mbResponse.ok) {
-            console.error(`MusicBrainz API returned status: ${mbResponse.status}`);
-            return null;
-        }
+        if (!mbResponse.ok) return null;
+        
         const mbData = await mbResponse.json();
         const release = mbData.releases?.[0];
         const releaseId = release?.id;
-        if (!releaseId) {
-            console.log(`No release ID found on MusicBrainz for ${artist} - ${album}`);
-            return null;
-        }
+        
+        if (!releaseId) return null;
+        
         const coverArtUrl = `https://coverartarchive.org/release/${releaseId}`;
         const caResponse = await fetch(coverArtUrl);
-        if (!caResponse.ok) {
-            return null;
-        }
+        if (!caResponse.ok) return null;
+        
         const caData = await caResponse.json();
         const frontImage = caData.images?.find((img: { front: boolean; }) => img.front);
+        
         if (frontImage?.image) {
             console.log("Successfully got album art from Cover Art Archive.");
             return frontImage.image;
@@ -117,9 +103,7 @@ async function findCoverArt(artist: string, album: string): Promise<string | nul
 
     console.log("iTunes failed, trying MusicBrainz / Cover Art Archive...");
     const musicBrainzArt = await findCoverOnMusicBrainz(artist, album);
-    if (musicBrainzArt) {
-        return musicBrainzArt;
-    }
+    if (musicBrainzArt) return musicBrainzArt;
 
     console.log("All fallbacks failed.");
     return null;
@@ -145,10 +129,10 @@ const getBaseUrl = () => {
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
 
-// --- MAIN COMMAND HANDLER (REVISED) ---
+// --- MAIN COMMAND HANDLER ---
 
 export async function handleFm(interaction: APIChatInputApplicationCommandInteraction) {
-    const options = interaction.data.options ?? [];
+    const options = interaction.data.options ??[];
     const usernameOption = options.find(opt => opt.name === 'username') as APIApplicationCommandInteractionDataStringOption | undefined;
     const youtubeScrobbleOption = options.find(opt => opt.name === 'youtube_scrobble') as APIApplicationCommandInteractionDataBooleanOption | undefined;
     const applyYoutubeScrobbleFix = youtubeScrobbleOption?.value !== false;
@@ -201,7 +185,6 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         const trackName = track.name;
         const albumName = track.album['#text'];
         
-        // Apply the cleaning function to the artist name
         if (applyYoutubeScrobbleFix){
             artist = cleanArtistName(artist);
         }
@@ -222,6 +205,28 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             console.error("Could not fetch track duration:", e);
         }
 
+        // --- NEW: FETCH ALBUM TAGS FOR GENRES ---
+        let lastfmTags: string[] =[];
+        if (albumName) {
+            try {
+                const albumInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=album.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(albumName)}&format=json`;
+                const albumInfoResponse = await fetch(albumInfoUrl);
+                const albumInfoData = await albumInfoResponse.json();
+                
+                if (albumInfoData?.album?.tags?.tag) {
+                    const tags = albumInfoData.album.tags.tag;
+                    if (Array.isArray(tags)) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        lastfmTags = tags.map((t: any) => t.name);
+                    } else if (typeof tags === 'object' && tags !== null) {
+                        lastfmTags = [tags.name]; // If there's only 1 tag, Last.fm returns an object instead of an Array
+                    }
+                }
+            } catch (e) {
+                console.error("Could not fetch album tags:", e);
+            }
+        }
+
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
             || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
             || track.image[track.image.length - 1]?.['#text'];
@@ -237,12 +242,17 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
                 body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
                 headers: { 'Content-Type': 'application/json' },
             });
-            // --- CRITICAL FIX: Return a NextResponse to prevent crashing ---
             return new NextResponse(null, { status: 204 });
         }
 
         if (discordUserId != '508817156847173632') { // ban sarsparilla!!!
             syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
+            
+            // --- NEW: LINK GENRES ASYNC ---
+            if (lastfmTags.length > 0) {
+                const slug = generateSlug(artist, albumName);
+                linkAlbumGenres(slug, lastfmTags, interaction.member!.user.id);
+            }
         }
 
         const dominantColor = await getDominantColor(albumArtUrl);
@@ -271,7 +281,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
 
         const components = [{
             type: 1,
-            components: [{
+            components:[{
                 type: 2,
                 style: ButtonStyle.Secondary,
                 label: 'Re-sync',
@@ -289,7 +299,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             await fetch(webhookUrl, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ components: [] }),
+                body: JSON.stringify({ components:[] }),
             });
         }, 60000);
 
@@ -305,7 +315,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
     return new NextResponse(null, { status: 204 });
 };
 
-// --- BUTTON HANDLER (REVISED) ---
+// --- BUTTON HANDLER ---
 
 export async function handleFmResync(interaction: APIMessageComponentButtonInteraction) {
     const originalUserId = interaction.data.custom_id.split('_')[2];
@@ -335,7 +345,7 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
         await fetch(webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: "It seems you're no longer registered. Please use `/register`.", embeds: [], components: [] }),
+            body: JSON.stringify({ content: "It seems you're no longer registered. Please use `/register`.", embeds: [], components:[] }),
         });
         return new NextResponse(null, { status: 204 });
     }
@@ -349,7 +359,7 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
             await fetch(webhookUrl, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`.`, embeds: [] }),
+                body: JSON.stringify({ content: `Could not find any recent tracks for user \`${lastfmUsername}\`.`, embeds:[] }),
             });
             return new NextResponse(null, { status: 204 });
         }
@@ -359,7 +369,6 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
         const trackName = track.name;
         const albumName = track.album['#text'];
 
-        // Always apply the fix on resync
         artist = cleanArtistName(artist);
         
         let formattedDuration = "";
@@ -378,6 +387,28 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
             console.error("Could not fetch track duration:", e);
         }
 
+        // --- NEW: FETCH ALBUM TAGS FOR GENRES ---
+        let lastfmTags: string[] =[];
+        if (albumName) {
+            try {
+                const albumInfoUrl = `https://ws.audioscrobbler.com/2.0/?method=album.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(albumName)}&format=json`;
+                const albumInfoResponse = await fetch(albumInfoUrl);
+                const albumInfoData = await albumInfoResponse.json();
+                
+                if (albumInfoData?.album?.tags?.tag) {
+                    const tags = albumInfoData.album.tags.tag;
+                    if (Array.isArray(tags)) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        lastfmTags = tags.map((t: any) => t.name);
+                    } else if (typeof tags === 'object' && tags !== null) {
+                        lastfmTags =[tags.name];
+                    }
+                }
+            } catch (e) {
+                console.error("Could not fetch album tags:", e);
+            }
+        }
+
         let albumArtUrl = track.image.find((img: { size: string; }) => img.size === 'extralarge')?.['#text']
             || track.image.find((img: { size: string; }) => img.size === 'large')?.['#text']
             || track.image[track.image.length - 1]?.['#text'];
@@ -392,11 +423,17 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
                 body: JSON.stringify({ content: `Could not find album art for **${trackName}** by **${artist}**.` }),
                 headers: { 'Content-Type': 'application/json' },
             });
-            // --- CRITICAL FIX: Return a NextResponse to prevent crashing ---
             return new NextResponse(null, { status: 204 });
         }
         
         syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
+
+        // --- NEW: LINK GENRES ASYNC ---
+        if (lastfmTags.length > 0) {
+            const slug = generateSlug(artist, albumName);
+            linkAlbumGenres(slug, lastfmTags, interaction.member!.user.id);
+        }
+
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
         let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';

@@ -8,7 +8,7 @@ import {
     ButtonStyle,
     APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
-import { getUserLastFM } from '@/utils/database/user-service';
+import { getUserByDiscordId, getUserLastFM } from '@/utils/database/user-service';
 import { Vibrant } from 'node-vibrant/node';
 import { syncAlbumCover } from '@/utils/database/album-service';
 
@@ -166,7 +166,7 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
-                content: `You haven't registered your Last.fm username yet! Use the \`/register\` command first, or provide a username directly with \`/fm username: <username>\`.`,
+                content: `You haven't registered your Last.fm username yet! Use the \`/join\` command first, or provide a username directly with \`/fm username: <username>\`.`,
                 flags: 1 << 6,
             },
         });
@@ -241,7 +241,10 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             return new NextResponse(null, { status: 204 });
         }
 
-        syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
+        if (discordUserId != '508817156847173632') { // ban sarsparilla!!!
+            syncAlbumCover(artist, albumName, albumArtUrl, interaction.member!.user.id);
+        }
+
         const dominantColor = await getDominantColor(albumArtUrl);
         const baseUrl = getBaseUrl();
         let iconUrl = 'https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png';

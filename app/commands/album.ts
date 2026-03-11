@@ -86,7 +86,6 @@ function formatAlbumStats(avgScore: number | null, rank: number | null, totalRat
 \`\`\``;
 }
 
-
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
     const options = interaction.data.options ??[];

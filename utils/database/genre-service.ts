@@ -5,7 +5,7 @@ export const VALID_GENRES =[
     "folk", "regional", "emo", "country", "blues", "funk", "soul", "jazz", "classical",
     "hip hop", "electronic", "rock", "pop", "vaporwave", "j-pop", "neo-psychedelia",
     "slowcore", "reggae", "punk", "post-punk", "progressive rock", "art rock", "shoegaze",
-    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter"
+    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter", "ambient", "drone"
 ];
 
 //#region Get Genres
@@ -172,6 +172,8 @@ export function mapLastFmTagToGenre(tag: string): string | null {
     
     if (t.includes("rock")) return "rock"; // Catch-all for "glam-rock", "hard rock", etc.
     
+    if (t.includes("ambient")) return "ambient";
+    if (t.includes("drone")) return "drone";
     if (t.includes("country")) return "country";
     if (t.includes("blues")) return "blues";
     if (t.includes("soul")) return "soul";

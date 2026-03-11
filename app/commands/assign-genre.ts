@@ -127,7 +127,7 @@ export async function handleAssignGenre(
                     components:[{
                         type: ComponentType.StringSelect,
                         custom_id: `assign_genre_select_1`,
-                        placeholder: "Select a genre (A-S)",
+                        placeholder: "Select a genre (A-R)",
                         options: firstHalf
                     }]
                 }
@@ -140,7 +140,7 @@ export async function handleAssignGenre(
                     components:[{
                         type: ComponentType.StringSelect,
                         custom_id: `assign_genre_select_2`,
-                        placeholder: "Select a genre (S-Z)",
+                        placeholder: "Select a genre (R-Z)",
                         options: secondHalf
                     }]
                 });

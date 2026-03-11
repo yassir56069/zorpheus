@@ -231,7 +231,7 @@ const commands = [
           }
       ]
   },
-  //#endregion
+  //#endregion,
 
 //#region Assign Genre
   {
@@ -240,13 +240,13 @@ const commands = [
     "options":[
       {
         "name": "album-id",
-        "description": "The ID of the album (found at the bottom of the /album embed). Leave blank for current Last.fm track's album.",
+        "description": "The ID of the album (found at the bottom of the /album embed).",
         "type": 3, 
         "required": false
       }
     ]
   },
-  //#endregion
+  //#endregion,
 
   //#region Import
   {

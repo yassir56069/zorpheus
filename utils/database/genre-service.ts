@@ -5,7 +5,7 @@ export const VALID_GENRES =[
     "folk", "regional", "emo", "country", "blues", "funk", "soul", "jazz", "classical",
     "hip hop", "electronic", "rock", "pop", "vaporwave", "j-pop", "neo-psychedelia",
     "slowcore", "reggae", "punk", "post-punk", "progressive rock", "art rock", "shoegaze",
-    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter", "ambient", "drone"
+    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter", "ambient", "drone", "alternative country"
 ];
 
 //#region Get Genres
@@ -138,6 +138,7 @@ export function mapLastFmTagToGenre(tag: string): string | null {
         "house": "electronic",
         "techno": "electronic",
         "indie": "indie rock",
+        "alternative country": "alt country",
     };
 
     if (EXACT_MAPPINGS[t]) return EXACT_MAPPINGS[t];
@@ -152,6 +153,7 @@ export function mapLastFmTagToGenre(tag: string): string | null {
     if (t.includes("art rock")) return "art rock";
     if (t.includes("indie rock")) return "indie rock";
     if (t.includes("alternative rock") || t.includes("alt-rock") || t.includes("alternative")) return "alternative rock";
+    if (t.includes("alternative country") || t.includes("alt-country")) return "alternative country";
     if (t.includes("shoegaze")) return "shoegaze";
     if (t.includes("punk")) return "punk"; 
     

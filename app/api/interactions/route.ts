@@ -32,6 +32,7 @@ import { getOrCreateAlbum } from '@/utils/database/album-service';
 import { waitUntil } from '@vercel/functions';
 import { handleDonorAlbums, handleTopAlbums } from '@/app/commands/top-albums';
 import { handleTopChart } from '@/app/commands/top-chart';
+import { handleAssignGenre } from '@/app/commands/assign-genre';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -70,6 +71,8 @@ export async function POST(req: Request) {
                 return handleRate(interaction as APIChatInputApplicationCommandInteraction);
             case 'import': 
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
+            case 'assign-genre':
+                return handleAssignGenre(interaction as APIChatInputApplicationCommandInteraction,waitUntil);
             case 'canonize-album':
                 return handleCanonizeAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album':

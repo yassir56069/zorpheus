@@ -48,6 +48,64 @@ export async function getMergedAlbumGenres(slug: string): Promise<string[]> {
 
 //#endregion
 
+//#region  Add Genres
+
+/**
+ * Manually links a genre to an album based on an album's integer ID.
+ */
+export async function addManualAlbumGenre(albumId: number, genreName: string, userId: string) {
+    const normalizedGenre = genreName.toLowerCase();
+    
+    if (!VALID_GENRES.includes(normalizedGenre)) {
+        throw new Error("Invalid genre");
+    }
+
+    try {
+        const albumRes = await db.execute({
+            sql: `SELECT slug FROM albums WHERE id = ?`,
+            args: [albumId]
+        });
+
+        if (albumRes.rows.length === 0) return false;
+        
+        // Use the slug because album_genres expects the slug format under albumId
+        const albumSlug = albumRes.rows[0].slug as string;
+
+        const genreRes = await db.execute({
+            sql: `SELECT genreId FROM genres WHERE genreName = ?`,
+            args: [normalizedGenre]
+        });
+
+        let genreId: number;
+
+        if (genreRes.rows.length === 0) {
+            const insertRes = await db.execute({
+                sql: `INSERT INTO genres (genreName, source) VALUES (?, 0) RETURNING genreId`,
+                args: [normalizedGenre]
+            });
+            genreId = insertRes.rows[0].genreId as number;
+        } else {
+            genreId = genreRes.rows[0].genreId as number;
+        }
+
+        // Link to album (source 0 = manual user submitted)
+        await db.execute({
+            sql: `
+                INSERT INTO album_genres (albumId, genreId, weight, fromUser, source)
+                VALUES (?, ?, 1, ?, 0)
+                ON CONFLICT(albumId, genreId) DO NOTHING
+            `,
+            args: [albumSlug, genreId, userId]
+        });
+        
+        return true;
+    } catch (error) {
+        console.error(`[DB Error] Failed to link manual genre ${genreName} to album ID ${albumId}:`, error);
+        return false;
+    }
+}
+
+//#endregion
 
 /**
  * Maps messy Last.fm tags to our strict 29-genre taxonomy.

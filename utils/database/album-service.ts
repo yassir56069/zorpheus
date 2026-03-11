@@ -8,6 +8,7 @@ export interface TopAlbumResult extends AlbumStats {
 }
 
 export interface AlbumStats {
+    id: number;
     name: string;
     artistName: string;
     slug: string;
@@ -24,6 +25,8 @@ export interface UserRating {
     score: number;
     updatedAt: string;
 }
+
+
 
 /**
  * Retrieves the top rated albums with pagination and optional date filtering.
@@ -306,6 +309,15 @@ export async function getOrCreateAlbum(albumData: {
     }
 }
 
+
+export async function getAlbumById(id: number) {
+    const sql = `SELECT * FROM albums WHERE id = ?`;
+    const result = await db.execute({ sql, args: [id] });
+    return result.rows.length > 0 ? result.rows[0] : null;
+}
+
+
+
 export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string, releaseYear?: string | null) {
     const slug = generateSlug(artistName, albumName, releaseYear);
 
@@ -372,7 +384,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             LIMIT 1
         )
         SELECT 
-            a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
+            a.id, a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
             s.avgScore, s.ratingCount, r.rank
         FROM albums a
         JOIN TargetAlbum t ON a.slug = t.target_slug

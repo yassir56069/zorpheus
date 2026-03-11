@@ -233,6 +233,21 @@ const commands = [
   },
   //#endregion
 
+//#region Assign Genre
+  {
+    "name": "assign-genre",
+    "description": "Manually tag an album with a genre from the database.",
+    "options":[
+      {
+        "name": "album-id",
+        "description": "The ID of the album (found at the bottom of the /album embed). Leave blank for current Last.fm track's album.",
+        "type": 3, 
+        "required": false
+      }
+    ]
+  },
+  //#endregion
+
   //#region Import
   {
     "name": "import",

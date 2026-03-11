@@ -300,7 +300,7 @@ export async function renderAlbumEmbed(slug: string) {
                              `\n**Community Ratings:**\n${ratingsDisplay}`,
                 color: 0x3498db,
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
-                footer: { text: `Slug: ${album.slug}` }
+                footer: { text: `ID: ${album.id} | Slug: ${album.slug}` }
             }]
         }
     };

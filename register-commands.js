@@ -368,6 +368,12 @@ const commands = [
         "description": "Which page of the rankings to display (default: 1).",
         "type": 4, 
         "required": false
+      },
+      {
+        "name": "genre",
+        "description": "pass a genre name to generate a genre chart instead.",
+        "type": 3, 
+        "required": false
       }
     ]
   },

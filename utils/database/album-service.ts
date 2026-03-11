@@ -31,27 +31,43 @@ export interface UserRating {
 /**
  * Retrieves the top rated albums with pagination and optional date filtering.
  */
+
 export async function getTopAlbums(options: {
     page?: number;
     limit?: number;
     days?: number;
+    genre?: string;
 }) {
-    const { page = 1, limit = 20, days } = options;
+    const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
 
-    // Notice we changed 'WHERE' to 'AND' here, because we're going to hardcode a WHERE clause for the score
     const dateFilter = days 
         ? `AND r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
-    /* 
-    -- OLD POPULARITY-BASED RANKING LOGIC (KEPT FOR REFERENCE) --
-    WITH UserStats AS (SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings),
-    ...
-    SELECT 
-        ...
-        (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 as weightedScore
-    */
+    // Automatically drop the required ratings to 3 for genre-specific charts
+    const minRatings = genre ? 3 : MIN_RATINGS_TO_RANK;
+
+    let genreCTE = '';
+    let genreJoin = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const args: any[] =[];
+
+    if (genre) {
+        // Find all canonical slugs where the album (or its canonical parent) has this genre
+        genreCTE = `
+        ValidGenreAlbums AS (
+            SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            JOIN album_genres ag ON ag.albumId = a.slug
+            JOIN genres g ON ag.genreId = g.genreId
+            WHERE g.genreName = ?
+        ),
+        `;
+        genreJoin = `JOIN ValidGenreAlbums vga ON ca.canonical_slug = vga.canonical_slug`;
+        args.push(genre.toLowerCase());
+    }
 
     const sql = `
         WITH CanonicalAlbums AS (
@@ -59,10 +75,12 @@ export async function getTopAlbums(options: {
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
+        ${genreCTE}
         CombinedRatings AS (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            ${genreJoin}
             -- Filter out archived/0 ratings right here
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
@@ -83,7 +101,7 @@ export async function getTopAlbums(options: {
             a.coverArtUrl,
             s.ratingCount,
             s.avgScore,
-            (s.avgScore / 2.0) as weightedScore -- Kept property name incase your UI relies on it
+            (s.avgScore / 2.0) as weightedScore
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
         WHERE s.ratingCount >= ?
@@ -91,7 +109,9 @@ export async function getTopAlbums(options: {
         LIMIT ? OFFSET ?
     `;
 
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, limit, offset] });
+    args.push(minRatings, limit, offset);
+
+    const result = await db.execute({ sql, args });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }

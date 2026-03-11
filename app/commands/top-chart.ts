@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
-import { InteractionResponseType, APIChatInputApplicationCommandInteraction, APIApplicationCommandInteractionDataStringOption, APIApplicationCommandInteractionDataIntegerOption } from 'discord-api-types/v10';
+import { InteractionResponseType, APIChatInputApplicationCommandInteraction, APIApplicationCommandInteractionDataStringOption } from 'discord-api-types/v10';
 import sharp from 'sharp';
 import { createCanvas } from 'canvas';
 import { getTopAlbums } from '@/utils/database/album-service';
+import { mapLastFmTagToGenre } from '@/utils/database/genre-service';
 
 export async function handleTopChart(interaction: APIChatInputApplicationCommandInteraction) {
     // 1. Defer the interaction immediately
@@ -13,14 +14,33 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
         headers: { 'Content-Type': 'application/json' },
     });
 
-    const options = (interaction.data.options || []);
+    const options = (interaction.data.options ||[]);
     
-    // --- FIX: Extract Page Option ---
     const rawPage = (options.find(opt => opt.name === 'page') as any)?.value;
     const page = rawPage ? Number(rawPage) : 1;
 
     const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '5x5';
     const period = (options.find(opt => opt.name === 'period') as any)?.value;
+    
+    // --- NEW: Extract and parse Genre Option ---
+    const rawGenre = (options.find(opt => opt.name === 'genre') as APIApplicationCommandInteractionDataStringOption)?.value;
+    let genreToQuery: string | undefined;
+    let displayGenre = '';
+
+    if (rawGenre) {
+        const mappedGenre = mapLastFmTagToGenre(rawGenre);
+        if (!mappedGenre) {
+            await updateResponse(interaction, { content: `⚠️ I couldn't map \`${rawGenre}\` to a valid database genre. Please try a different genre.` });
+            return new NextResponse(null, { status: 204 });
+        }
+        genreToQuery = mappedGenre;
+        
+        // Formats "post-punk" -> "Post-Punk" / "hip hop" -> "Hip Hop" for the chart title
+        displayGenre = mappedGenre
+            .split(' ')
+            .map(w => w.split('-').map(x => x.charAt(0).toUpperCase() + x.slice(1)).join('-'))
+            .join(' ');
+    }
     
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
@@ -29,25 +49,29 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
     const days = period ? daysMap[period] : undefined;
 
     try {
-        // 2. Fetch data from Turso with the dynamic page
-        const albums = await getTopAlbums({ page, limit, days });
+        // 2. Fetch data from Turso with the dynamic page AND genre filter
+        const albums = await getTopAlbums({ page, limit, days, genre: genreToQuery });
 
         if (!albums || albums.length === 0) {
-            await updateResponse(interaction, { content: `No rated albums found for page ${page}.` });
+            const genreText = displayGenre ? `**${displayGenre}** ` : '';
+            await updateResponse(interaction, { content: `No rated ${genreText}albums found for page ${page}.` });
             return new NextResponse(null, { status: 204 });
         }
 
-        // 3. Generate the chart (Passing page/limit to calculate correct rank numbers)
+        // 3. Generate the chart
         const chartBuffer = await createRankedChartImage(albums, gridWidth, gridHeight, page, limit);
 
         // 4. Send back to Discord
         const formData = new FormData();
         formData.append('file', new Blob([chartBuffer]), 'top-chart.png');
         
-        const title = period ? `Top Rated Albums (${period})` : `Top Rated Albums (All Time)`;
+        // Dynamically build a beautiful Title
+        const baseTitle = displayGenre ? `Top Rated ${displayGenre} Albums` : `Top Rated Albums`;
+        const timePeriodTitle = period ? `${baseTitle} (${period})` : `${baseTitle} (All Time)`;
         const pageText = page > 1 ? ` - Page ${page}` : '';
+        
         formData.append('payload_json', JSON.stringify({ 
-            content: `### 🏆 ${title}${pageText}` 
+            content: `### 🏆 ${timePeriodTitle}${pageText}` 
         }));
 
         await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {

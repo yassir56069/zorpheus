@@ -15,20 +15,49 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // UPDATED: Now selects albums where a cover is missing OR genres haven't been checked yet
+    // UPDATED SQL: 
+    // 1. Mirrors getTopAlbums ranking completely
+    // 2. Filters out score = 0
+    // 3. Demands ratingCount >= 3 to cover bases for top-chart (5) and genre-chart (3)
+    // 4. Filters for missing covers/genres
     const sql = `
-        WITH UserStats AS (SELECT COUNT(DISTINCT userId) as totalUsers FROM ratings),
-        CanonicalAlbums AS (SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug FROM albums a LEFT JOIN albums c ON a.canonicalId = c.id),
-        CombinedRatings AS (SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score FROM ratings r JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug GROUP BY ca.canonical_slug, r.userId),
-        AlbumSums AS (SELECT albumId, SUM(score) as sumScore, COUNT(userId) as ratingCount FROM CombinedRatings GROUP BY albumId)
-        SELECT a.name, a.artistName, a.slug, a.COVERARTURL, a.genresChecked
+        WITH CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug 
+            FROM albums a 
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        CombinedRatings AS (
+            SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score 
+            FROM ratings r 
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug 
+            WHERE r.score > 0 
+            GROUP BY ca.canonical_slug, r.userId
+        ),
+        AlbumSums AS (
+            SELECT 
+                albumId, 
+                SUM(score) as sumScore, 
+                COUNT(userId) as ratingCount,
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+            FROM CombinedRatings 
+            GROUP BY albumId
+        )
+        SELECT 
+            a.name, 
+            a.artistName, 
+            a.slug, 
+            a.COVERARTURL, 
+            a.genresChecked
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
-        WHERE a.COVERARTURL IS NULL 
-           OR a.genresChecked IS NULL 
-           OR a.genresChecked = FALSE 
-           OR a.genresChecked = 0
-        ORDER BY (CAST(s.sumScore AS FLOAT) / NULLIF((SELECT totalUsers FROM UserStats), 0)) / 2.0 DESC
+        WHERE s.ratingCount >= 3 
+          AND (
+            a.COVERARTURL IS NULL 
+            OR a.genresChecked IS NULL 
+            OR a.genresChecked = FALSE 
+            OR a.genresChecked = 0
+          )
+        ORDER BY s.avgScore DESC, s.ratingCount DESC
         LIMIT 200
     `;
 

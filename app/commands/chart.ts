@@ -5,11 +5,10 @@ import {
     APIApplicationCommandInteractionDataStringOption,
     APIApplicationCommandInteractionDataBooleanOption
 } from 'discord-api-types/v10';
-import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 import path from 'path';
 import { createCanvas, registerFont } from 'canvas';
-import { getUserLastFM } from '@/utils/database/user-service';
+import { getUserLastFM, getAllLastFMUsers } from '@/utils/database/user-service';
 
 // --- FONT REGISTRATION ---
 // We now register two fonts: Courier New for primary text, and a CJK font for fallbacks.
@@ -94,7 +93,7 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
         headers: { 'Content-Type': 'application/json' },
     });
 
-    const options = (interaction.data.options || []);
+    const options = (interaction.data.options ||[]);
     const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '3x3';
     const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
@@ -108,20 +107,17 @@ export async function handleServerChart(interaction: APIChatInputApplicationComm
     const apiKey = process.env.LASTFM_API_KEY;
 
     try {
-        const userKeys: string[] = [];
-        for await (const key of kv.scanIterator()) {
-            userKeys.push(key);
-        }
+        // --- NEW DB LOGIC ---
+        // Fetch all registered Last.fm usernames directly from the Turso SQLite database
+        const lastfmUsernames = await getAllLastFMUsers();
 
-        if (userKeys.length === 0) {
+        if (lastfmUsernames.length === 0) {
             const content = 'No users have registered their Last.fm accounts yet.';
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });
             return new NextResponse(null, { status: 204 });
         }
-
-        const lastfmUsernames = (await kv.mget(...userKeys)) as string[];
 
         const fetchPromises = lastfmUsernames.map(username => {
             if (!username) return null;
@@ -271,7 +267,7 @@ async function createChartImage(albums: Album[], gridWidth: number, gridHeight: 
         }
     });
 
-    const compositeOperations = [];
+    const compositeOperations =[];
 
     // Part 1: Composite album covers and 'under' style text
     for (let index = 0; index < albums.length; index++) {
@@ -338,10 +334,10 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         headers: { 'Content-Type': 'application/json' },
     });
 
-    const options = (interaction.data.options || []);
+    const options = (interaction.data.options ||[]);
     let lastfmUsername = (options.find(opt => opt.name === 'user') as APIApplicationCommandInteractionDataStringOption)?.value || null;
     const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '3x3';
-    const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
+    const[gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
     const displayStyle = (options.find(opt => opt.name === 'labelling') as APIApplicationCommandInteractionDataStringOption)?.value || 'no_names';
     const period = (options.find(opt => opt.name === 'period') as APIApplicationCommandInteractionDataStringOption)?.value || '7day';
@@ -354,7 +350,7 @@ export async function handleChart(interaction: APIChatInputApplicationCommandInt
         const discordUserId = interaction.member!.user.id;
         lastfmUsername = await getUserLastFM(discordUserId); 
         if (!lastfmUsername) {
-            const content = 'Please register your Last.fm username with `/register`.';
+            const content = 'Please register your Last.fm username with `/join 🦇`.';
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
                 method: 'PATCH', body: JSON.stringify({ content }), headers: { 'Content-Type': 'application/json' },
             });

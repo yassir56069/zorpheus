@@ -60,3 +60,18 @@ export async function getUserDisplayName(discordUserId: string): Promise<string 
         return null;
     }
 }
+
+
+export async function getAllLastFMUsers(): Promise<string[]> {
+    try {
+        const result = await db.execute({
+            sql: 'SELECT userLastFMUserName FROM users WHERE userLastFMUserName IS NOT NULL',
+            args: []
+        });
+        
+        return result.rows.map(row => row.userLastFMUserName as string);
+    } catch (error) {
+        console.error(`[DB Error] Fetching all Last.fm users:`, error);
+        return [];
+    }
+}

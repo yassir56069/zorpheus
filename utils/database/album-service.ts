@@ -630,7 +630,7 @@ export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<
         WITH RankedAlbums AS (
             SELECT a.slug, AVG(r.score) as avgScore
             FROM albums a
-            JOIN ratings r ON a.slug = r.albumSlug
+            JOIN ratings r ON a.slug = r.ALBUMID
             GROUP BY a.slug
             ORDER BY avgScore DESC
             LIMIT ?

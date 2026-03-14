@@ -97,7 +97,7 @@ export async function POST(req: Request) {
                 return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
             case 'chart': 
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
-            case 'serverchart': // Add a case for the new command
+            case 'serverchart': 
                 return await handleServerChart(interaction as APIChatInputApplicationCommandInteraction);
             case 'league': 
                 return handleLeague(interaction as APIChatInputApplicationCommandInteraction)
@@ -127,7 +127,7 @@ export async function POST(req: Request) {
             }
             //#endregion
 
-            //#region Rating
+            //#region Rating (Standard /rate command)
             if (customId.startsWith('rate_select_')) {
                 const userIdFromId = customId.replace('rate_select_', '');
                 const actingUserId = selectInteraction.member?.user.id || selectInteraction.user?.id;
@@ -151,9 +151,59 @@ export async function POST(req: Request) {
                     type: InteractionResponseType.UpdateMessage,
                     data: {
                         content: `✅ Successfully rated **${albumName}** by **${artistName}**: **${score / 2}** stars.`,
-                        embeds: [],
-                        components: []
+                        embeds:[],
+                        components:[]
                     }
+                });
+            }
+            //#endregion
+
+            //#region Rating from Embed (/album & /album-search)
+            if (customId === 'rate_album_embed') {
+                const actingUserId = selectInteraction.member?.user.id || selectInteraction.user?.id;
+                const score = parseInt(selectInteraction.data.values[0]);
+
+                if (!actingUserId) {
+                    return NextResponse.json({
+                        type: InteractionResponseType.ChannelMessageWithSource,
+                        data: { content: "Unauthorized", flags: 64 }
+                    });
+                }
+
+                // Extract the album slug directly from the embed's footer!
+                const embed = selectInteraction.message.embeds[0];
+                const footerText = embed?.footer?.text;
+                const slugMatch = footerText?.match(/Slug: (.+)/);
+                const slug = slugMatch ? slugMatch[1] : null;
+
+                if (!slug) {
+                    return NextResponse.json({
+                        type: InteractionResponseType.ChannelMessageWithSource,
+                        data: { content: "❌ Could not determine album from embed.", flags: 64 }
+                    });
+                }
+
+                // Fire background update: Save rating and refresh the embed for everyone
+                waitUntil((async () => {
+                    try {
+                        await upsertRating(actingUserId, slug, score);
+                        
+                        // Re-fetch the album so the community score updates
+                        const result = await renderAlbumEmbed(slug);
+                        
+                        // Overwrite the interaction payload to update the embed visually
+                        // By doing ...result.data, it automatically puts the dropdown menu back on it!
+                        await editInteractionResponse(interaction.token, {
+                            ...result.data
+                        });
+                    } catch (error) {
+                        console.error("[ALBUM] Background embed update error:", error);
+                    }
+                })());
+
+                // Enter a loading state so the dropdown shows it was clicked successfully
+                return NextResponse.json({
+                    type: InteractionResponseType.DeferredMessageUpdate
                 });
             }
             //#endregion
@@ -169,8 +219,9 @@ export async function POST(req: Request) {
                         
                         await editInteractionResponse(interaction.token, {
                             content: "", 
-                            ...result.data,
-                            components:[] // Explicitly clear components 
+                            ...result.data
+                            // NOTE: We do NOT clear the menu array here, 
+                            // so the rating dropdown properly attaches to the search result!
                         });
 
                     } catch (error) {
@@ -178,18 +229,18 @@ export async function POST(req: Request) {
                         await editInteractionResponse(interaction.token, { 
                             content: `❌ An internal error occurred while retrieving the album.`,
                             embeds: [],
-                            components:[]
+                            components: []
                         });
                     }
                 })());
 
-                // IMMEDIATELY update the message to a loading state so the user knows it's working
+                // IMMEDIATELY update the message to a loading state 
                 return NextResponse.json({
                     type: InteractionResponseType.UpdateMessage,
                     data: {
                         content: `⏳ Fetching statistics and cover art for \`${selectedSlug}\`. This might take a moment...`,
-                        embeds: [], // Clear any existing embeds
-                        components:[] // Remove the dropdown so they can't click it again while it loads
+                        embeds: [],
+                        components: []
                     }
                 });
             }
@@ -201,36 +252,34 @@ export async function POST(req: Request) {
         if (componentInteraction.data.component_type === ComponentType.Button) {
             const buttonInteraction = componentInteraction as APIMessageComponentButtonInteraction;
 
-        //#region Profile Pagination
-        if (customId.startsWith('profile_')) {
-            return handleProfileButtonInteraction(buttonInteraction);
+            //#region Profile Pagination
+            if (customId.startsWith('profile_')) {
+                return handleProfileButtonInteraction(buttonInteraction);
+            }
+            //#endregion
+
+            //#region Resync
+            if (customId.startsWith('resync_fm_')) {
+                return handleFmResync(buttonInteraction);
+            }
+            //#endregion
+
+            //#region Cover
+            if (customId.startsWith('cov_')) {
+                return handleCoverButtonInteraction(buttonInteraction);
+            }
+            //#endregion
+
+            //#region Counter
+            if (customId.startsWith('countdown_')) { 
+                return handleCountdownInteraction(buttonInteraction);
+            }
+            //#endregion
         }
         //#endregion
-
-
-        //#region  Resync
-        if (customId.startsWith('resync_fm_')) {
-            return handleFmResync(buttonInteraction);
-        }
-        //#endregion
-
-        //#region Cover
-        if (customId.startsWith('cov_')) {
-            return handleCoverButtonInteraction(buttonInteraction);
-        }
-        //#endregion
-
-        //#region  Counter
-        if (customId.startsWith('countdown_')) { // Example prefix for your countdown buttons
-            return handleCountdownInteraction(buttonInteraction);
-        }
-        //#endregion
-
-        }
-        //#endregion
+        
         return new NextResponse('Unhandled component interaction', { status: 400 });
     }
-
     //#endregion
 
     return new NextResponse('Unhandled interaction type', { status: 404 });

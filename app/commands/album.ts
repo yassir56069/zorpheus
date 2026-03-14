@@ -292,7 +292,6 @@ export async function renderAlbumEmbed(slug: string) {
         data: {
             embeds:[{
                 title: `${album.artistName} - ${album.name}`,
-                // Note: removed the old separate fields and replaced with statsBlock
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
                              statsBlock +
@@ -300,11 +299,30 @@ export async function renderAlbumEmbed(slug: string) {
                 color: 0x3498db,
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
                 footer: { text: `ID: ${album.id} | Slug: ${album.slug}` }
+            }],
+            components:[{
+                type: ComponentType.ActionRow,
+                components:[{
+                    type: ComponentType.StringSelect,
+                    custom_id: `rate_album_embed`,
+                    placeholder: "Rate this album",
+                    options: [
+                        { label: '[5.0] ★★★★★', value: '10' },
+                        { label: '[4.5] ★★★★½', value: '9' },
+                        { label: '[4.0] ★★★★', value: '8' },
+                        { label: '[3.5] ★★★½', value: '7' },
+                        { label: '[3.0] ★★★', value: '6' },
+                        { label: '[2.5] ★★½', value: '5' },
+                        { label: '[2.0] ★★', value: '4' },
+                        { label: '[1.5] ★½', value: '3' },
+                        { label: '[1.0] ★', value: '2' },
+                        { label: '[0.5] ½', value: '1' },
+                    ]
+                }]
             }]
         }
     };
 }
-
 
 
 

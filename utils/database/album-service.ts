@@ -621,6 +621,47 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
     }
 }
 
+/**
+ * Gets a random album from the top N ranked albums that hasn't been highlighted yet.
+ */
+export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
+    // Modify the table/column names if your schema calculates rank differently
+    const query = `
+        WITH RankedAlbums AS (
+            SELECT a.slug, AVG(r.score) as avgScore
+            FROM albums a
+            JOIN ratings r ON a.slug = r.albumSlug
+            GROUP BY a.slug
+            ORDER BY avgScore DESC
+            LIMIT ?
+        )
+        SELECT a.slug 
+        FROM RankedAlbums ra
+        JOIN albums a ON ra.slug = a.slug
+        WHERE a.albumHighlight IS NULL
+        ORDER BY RANDOM()
+        LIMIT 1;
+    `;
+    
+    const result = await db.execute({
+        sql: query,
+        args: [topLimit]
+    });
+    
+    if (result.rows.length === 0) return null;
+    return result.rows[0].slug as string;
+}
+
+/**
+ * Marks an album as highlighted with the current datetime.
+ */
+export async function markAlbumAsHighlighted(slug: string) {
+    await db.execute({
+        sql: `UPDATE albums SET albumHighlight = CURRENT_TIMESTAMP WHERE slug = ?`,
+        args: [slug]
+    });
+}
+
 //#region Helper Methods
 function normalizeString(str: string): string {
     const normalized = str.toLowerCase().replace(/[\s\p{P}]/gu, '');

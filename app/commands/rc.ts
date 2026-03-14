@@ -13,7 +13,7 @@ import { kv } from '@vercel/kv';
  * @param url The URL of the image to fetch.
  * @returns A Promise that resolves with the image Buffer.
  */
-async function fetchImageBuffer(url: string): Promise<Buffer> {
+export async function fetchImageBuffer(url: string): Promise<Buffer> {
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.statusText} for URL: ${url}`);
@@ -26,7 +26,7 @@ function normalizeString(str: string): string {
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
+export async function isValidImageUrl(url: string | null | undefined, timeout = 2500): Promise<boolean> {
     if (!url) return false;
     if (url === 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png') return false;
 
@@ -70,7 +70,7 @@ async function findCoverOnMusicBrainz(artist: string, album: string): Promise<st
     }
 }
 
-async function findCoverArt(artist: string, album: string): Promise<string | null> {
+export async function findCoverArt(artist: string, album: string): Promise<string | null> {
     try {
         const searchTerm = `${artist} ${album}`;
         const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=album&limit=5`;

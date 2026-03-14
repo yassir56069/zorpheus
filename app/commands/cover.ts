@@ -12,7 +12,7 @@ import {
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
 import { generateSlug, syncAlbumCover } from '@/utils/database/album-service';
-import { getUserByDiscordId, getUserLastFM } from '@/utils/database/user-service';
+import { getUserLastFM } from '@/utils/database/user-service';
 import { linkAlbumGenres } from '@/utils/database/genre-service';
 
 // --- Types ---

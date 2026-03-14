@@ -124,8 +124,9 @@ export async function getDonorAlbums(options: {
     page?: number;
     limit?: number;
     days?: number;
+    genre?: string;
 }) {
-    const { page = 1, limit = 20, days } = options;
+    const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
 
     // Notice we changed 'WHERE' to 'AND' here
@@ -133,16 +134,42 @@ export async function getDonorAlbums(options: {
         ? `AND r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
+    // Automatically drop the required ratings target to 3 for genre-specific charts
+    const minRatingsTarget = genre ? 3 : MIN_RATINGS_TO_RANK;
+
+    let genreCTE = '';
+    let genreJoin = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const args: any[] =[];
+
+    if (genre) {
+        // Find all canonical slugs where the album (or its canonical parent) has this genre
+        genreCTE = `
+        ValidGenreAlbums AS (
+            SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            JOIN album_genres ag ON ag.albumId = a.slug
+            JOIN genres g ON ag.genreId = g.genreId
+            WHERE g.genreName = ?
+        ),
+        `;
+        genreJoin = `JOIN ValidGenreAlbums vga ON ca.canonical_slug = vga.canonical_slug`;
+        args.push(genre.toLowerCase());
+    }
+
     const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
+        ${genreCTE}
         CombinedRatings AS (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            ${genreJoin}
             -- Filter out archived/0 ratings right here
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
@@ -171,8 +198,11 @@ export async function getDonorAlbums(options: {
         LIMIT ? OFFSET ?
     `;
 
-    // Pass the MIN_RATINGS_TO_RANK so we only get albums strictly below the threshold
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, limit, offset] });
+    // Push the dynamic minRatingsTarget, limit, and offset to the args array
+    args.push(minRatingsTarget, limit, offset);
+
+    const result = await db.execute({ sql, args });
+    
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any
 }

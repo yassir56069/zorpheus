@@ -42,7 +42,7 @@ export async function handleTopChart(interaction: APIChatInputApplicationCommand
             .join(' ');
     }
     
-    const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
+    const[gridWidth, gridHeight] = sizeOption.split('x').map(Number);
     const limit = gridWidth * gridHeight;
 
     const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'year': 365 };
@@ -98,13 +98,12 @@ async function createRankedChartImage(
     limit: number
 ): Promise<Buffer> {
     // OPTIMIZATION: If the grid is massive (e.g. 10x10), reduce tile size to save memory/bandwidth
-    // 300px * 10 = 3000px (Very heavy). 200px * 10 = 2000px (Manageable).
     const imageSize = (gridWidth * gridHeight) > 25 ? 200 : 300; 
     
     const canvasWidth = imageSize * gridWidth;
     const canvasHeight = imageSize * gridHeight;
 
-    const compositeOperations: any[] = [];
+    const compositeOperations: any[] =[];
 
     // Process all albums in parallel
     const albumPromises = albums.map(async (album, index) => {
@@ -113,26 +112,42 @@ async function createRankedChartImage(
         const left = col * imageSize;
         const top = row * imageSize;
 
-        // Calculate actual rank: (previous pages * items per page) + current index + 1
         const globalRank = ((page - 1) * limit) + index + 1;
 
         let albumArt: Buffer;
+        let isMissingArt = false;
+        
         try {
-            const url = album.coverArtUrl || 'https://via.placeholder.com/300/141414/FFFFFF?text=No+Art';
+            // Check for valid URL instead of using generic placeholder, so we can trigger custom fallback
+            const url = album.coverArtUrl; 
+            if (!url) throw new Error("Missing Art URL");
+            
             const res = await fetch(url);
+            if (!res.ok) throw new Error("Failed to fetch art");
+            
             const arrayBuffer = await res.arrayBuffer();
-            // Resize immediately to target imageSize to save memory
             albumArt = await sharp(Buffer.from(arrayBuffer))
                 .resize(imageSize, imageSize)
                 .toBuffer();
         } catch {
+            isMissingArt = true;
+            // Create a fully grey tile as requested
             albumArt = await sharp({ 
-                create: { width: imageSize, height: imageSize, channels: 4, background: { r: 30, g: 30, b: 30, alpha: 1 } } 
+                create: { width: imageSize, height: imageSize, channels: 4, background: { r: 35, g: 35, b: 35, alpha: 1 } } 
             }).png().toBuffer();
         }
 
         const badgeCanvas = createCanvas(imageSize, imageSize);
         const ctx = badgeCanvas.getContext('2d');
+        
+        // --- MISSING ART TEXT ---
+        if (isMissingArt) {
+            // Defensively check common property names depending on your DB schema
+            const artist = album.artist || album.artistName || 'Unknown Artist';
+            const title = album.name || album.title || album.album || 'Unknown Album';
+            drawMissingAlbumText(ctx, `${artist} - ${title}`, imageSize);
+        }
+
         const score = Number(album.avgScore / 2).toFixed(2);
         
         // --- SCORE BADGE (Bottom Right) ---
@@ -149,6 +164,7 @@ async function createRankedChartImage(
 
         ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
         ctx.fillText(score, bx + badgeWidth / 2, by + (badgeHeight * 0.7));
 
         // --- RANK BADGE (Top Left) ---
@@ -163,7 +179,7 @@ async function createRankedChartImage(
 
         const badgeBuffer = badgeCanvas.toBuffer('image/png');
 
-        return [
+        return[
             { input: albumArt, left, top },
             { input: badgeBuffer, left, top }
         ];
@@ -181,11 +197,69 @@ async function createRankedChartImage(
         }
     })
     .composite(compositeOperations)
-    .png({ quality: 80, compressionLevel: 9 }) // Compression helps Discord upload limits
+    .png({ quality: 80, compressionLevel: 9 })
     .toBuffer();
 }
 
-// Helper for rounded rectangles (No changes needed)
+// Automatically wraps and scales text to fit gracefully onto an empty square
+function drawMissingAlbumText(ctx: any, text: string, imageSize: number) {
+    const padding = 15;
+    const maxWidth = imageSize - padding * 2;
+    const maxHeight = imageSize - padding * 2;
+    
+    let fontSize = Math.floor(imageSize / 8); 
+    let lines: string[] =[];
+    let lineHeight = 0;
+
+    // Word wrap and dynamic resizing
+    while (fontSize > 10) {
+        ctx.font = `bold ${fontSize}px "Courier New"`;
+        const words = text.split(' ');
+        let currentLine = words[0] || '';
+        lines =[];
+
+        for (let i = 1; i < words.length; i++) {
+            const word = words[i];
+            const width = ctx.measureText(currentLine + " " + word).width;
+            if (width < maxWidth) {
+                currentLine += " " + word;
+            } else {
+                lines.push(currentLine);
+                currentLine = word;
+            }
+        }
+        lines.push(currentLine);
+
+        lineHeight = fontSize * 1.3;
+        const totalHeight = lines.length * lineHeight;
+        const maxLineWidth = Math.max(...lines.map(l => ctx.measureText(l).width));
+        
+        // If it fits within the square bounds, stop scaling
+        if (totalHeight <= maxHeight && maxLineWidth <= maxWidth) {
+            break; 
+        }
+        fontSize -= 2;
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    const totalHeight = lines.length * lineHeight;
+    let startY = (imageSize - totalHeight) / 2 + (lineHeight / 2);
+
+    lines.forEach(line => {
+        // Draw a slight shadow to make text pop against the grey tile
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillText(line, (imageSize / 2) + 2, startY + 2);
+        
+        ctx.fillStyle = '#DDDDDD';
+        ctx.fillText(line, imageSize / 2, startY);
+        
+        startY += lineHeight;
+    });
+}
+
+// Helper for rounded rectangles
 function roundRect(ctx: any, x: number, y: number, width: number, height: number, radius: number) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);

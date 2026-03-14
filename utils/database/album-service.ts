@@ -2,6 +2,7 @@ import { db } from '@/utils/db';
 
 // Easily adjustable minimum ratings threshold for ranking
 export const MIN_RATINGS_TO_RANK = 5;
+export const MIN_RATINGS_FOR_HIGHLIGHT = 5;
 
 export interface TopAlbumResult extends AlbumStats {
     totalScore: number;
@@ -621,35 +622,71 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
     }
 }
 
+
+
 /**
- * Gets a random album from the top N ranked albums that hasn't been highlighted yet.
+ * Gets a random, unhighlighted album from the top-ranked list,
+ * using the same canonical and rating logic as getTopAlbums.
  */
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
-    // Modify the table/column names if your schema calculates rank differently
-    const query = `
-        WITH RankedAlbums AS (
-            SELECT a.slug, AVG(r.score) as avgScore
-            FROM albums a
-            JOIN ratings r ON a.slug = r.ALBUMID
-            GROUP BY a.slug
-            ORDER BY avgScore DESC
-            LIMIT ?
-        )
-        SELECT a.slug 
-        FROM RankedAlbums ra
-        JOIN albums a ON ra.slug = a.slug
-        WHERE a.albumHighlight IS NULL
-        ORDER BY RANDOM()
-        LIMIT 1;
-    `;
-    
-    const result = await db.execute({
-        sql: query,
-        args: [topLimit]
-    });
-    
-    if (result.rows.length === 0) return null;
-    return result.rows[0].slug as string;
+    try {
+        // This query is a modified version of getTopAlbums to find eligible candidates
+        const sql = `
+            -- Step 1: Handle canonical albums, same as getTopAlbums
+            WITH CanonicalAlbums AS (
+                SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+                FROM albums a
+                LEFT JOIN albums c ON a.canonicalId = c.id
+            ),
+            -- Step 2: Get the highest rating per user for each canonical album
+            CombinedRatings AS (
+                SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
+                FROM ratings r
+                JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+                WHERE r.score > 0
+                GROUP BY ca.canonical_slug, r.userId
+            ),
+            -- Step 3: Calculate sums and averages
+            AlbumSums AS (
+                SELECT 
+                    albumId, 
+                    COUNT(userId) as ratingCount,
+                    (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                FROM CombinedRatings
+                GROUP BY albumId
+            ),
+            -- Step 4: Find the top albums that are ELIGIBLE for highlight
+            EligibleTopAlbums AS (
+                SELECT 
+                    s.albumId as slug
+                FROM AlbumSums s
+                -- We must join back to the main albums table to check the highlight field
+                JOIN albums a ON s.albumId = a.slug
+                WHERE 
+                    s.ratingCount >= ? -- Use the minimum ratings rule
+                    AND a.albumHighlight IS NULL -- The key filter for this function
+                ORDER BY 
+                    s.avgScore DESC, s.ratingCount DESC -- Order to find the "top" albums
+                LIMIT ? -- Limit the pool to the top N (e.g., 30)
+            )
+            -- Step 5: From the final pool of eligible albums, pick one at random
+            SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
+        `;
+
+        const args = [MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
+
+        const result = await db.execute({ sql, args });
+        
+        if (result.rows.length === 0) {
+            console.warn("[DB] getRandomTopUnhighlightedAlbum found no eligible albums matching the criteria.");
+            return null;
+        }
+        return result.rows[0].slug as string;
+
+    } catch (e) {
+        console.error("[DB] FATAL ERROR in getRandomTopUnhighlightedAlbum:", e);
+        throw e; // Propagate the error to be caught by the command handler
+    }
 }
 
 /**

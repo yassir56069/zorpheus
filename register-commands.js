@@ -36,7 +36,7 @@ const commands = [
 //#region 
 
   {
-    "name": "atod",
+    "name": "aotd",
     "description": "[Admin] retrieves a random album within the top 30 and marks it as highlighted. ",
     "default_member_permissions": "8", 
   },

@@ -33,6 +33,16 @@ const commands = [
   },
   //#endregion
 
+//#region 
+
+  {
+    "name": "atod",
+    "description": "[Admin] retrieves a random album within the top 30 and marks it as highlighted. ",
+    "default_member_permissions": "8", 
+  },
+
+  //#endregion
+
   //#region Ping
   {
     name: 'ping',

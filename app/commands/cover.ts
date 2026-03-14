@@ -11,8 +11,9 @@ import {
 } from 'discord-api-types/v10';
 import { kv } from '@vercel/kv';
 import { Vibrant } from 'node-vibrant/node';
-import { syncAlbumCover } from '@/utils/database/album-service';
+import { generateSlug, syncAlbumCover } from '@/utils/database/album-service';
 import { getUserByDiscordId, getUserLastFM } from '@/utils/database/user-service';
+import { linkAlbumGenres } from '@/utils/database/genre-service';
 
 // --- Types ---
 
@@ -278,8 +279,20 @@ async function processCoverRequest(
 
     const bestCover = covers[0].url;
     const userId = interaction.member!.user.id;
+
     // We don't await this to keep the bot response snappy (fire and forget)
-    syncAlbumCover(artist, albumName, bestCover, userId); 
+    if (userId !== '508817156847173632') { 
+        syncAlbumCover(artist, albumName, bestCover, userId);
+        
+        // --- NEW: LINK GENRES ASYNC ---
+        // We fetch the tags here asynchronously so we don't hold up the discord reply
+        fetchAlbumTags(artist, albumName).then(lastfmTags => {
+            if (lastfmTags.length > 0) {
+                const slug = generateSlug(artist, albumName);
+                linkAlbumGenres(slug, lastfmTags, userId);
+            }
+        }).catch(err => console.error("Genre linking error:", err));
+    }
 
     // 2. Prepare Session Data
     const sessionId = interaction.id; // Use interaction ID as unique session key
@@ -516,4 +529,24 @@ export async function handleCover(interaction: APIChatInputApplicationCommandInt
     }
     
     return new NextResponse(null, { status: 204 });
+}
+
+async function fetchAlbumTags(artist: string, album: string): Promise<string[]> {
+    const apiKey = process.env.LASTFM_API_KEY;
+    if (!apiKey) return[];
+    
+    try {
+        const url = `https://ws.audioscrobbler.com/2.0/?method=album.getinfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}&format=json`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.album?.tags?.tag) {
+            const tags = Array.isArray(data.album.tags.tag) ? data.album.tags.tag : [data.album.tags.tag];
+            return tags.map((t: { name: string }) => t.name);
+        }
+    } catch (e) {
+        console.error("Error fetching Last.fm tags:", e);
+    }
+    
+    return[];
 }

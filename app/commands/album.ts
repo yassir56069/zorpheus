@@ -60,33 +60,49 @@ function titleCase(str: string): string {
     );
 }
 
-function formatAlbumStats(avgScore: number | null, rank: number | null, totalRatings: number): string {
-    const rawRating = avgScore != null ? (Number(avgScore) / 2) : null;
-    const ratingStr = rawRating !== null ? rawRating.toFixed(2) : "N/A";
-    const rankDisplay = rank ? `#${rank}` : "Unranked";
+function formatAlbumStats(
+    avgScore: number | null, 
+    weightedScore: number | null, 
+    rank: number | null, 
+    totalRatings: number
+): string {
+    const isRanked = rank !== null;
+    
+    // If ranked, use the Bayesian score. Otherwise, fall back to the raw average.
+    const activeScore = (isRanked && weightedScore !== null) ? weightedScore : avgScore;
+    const rawScore = activeScore !== null ? (Number(activeScore) / 2) : null;
+    const scoreStr = rawScore !== null ? rawScore.toFixed(2) : "N/A";
 
-    // 1. Determine Rating Color (Bold is \u001b[1m)
-    // Red: 31, Green: 32, Yellow: 33
-    let ratingColor = "\u001b[1;33m"; // Default Yellow
-    if (rawRating !== null) {
-        if (rawRating >= 4.0) ratingColor = "\u001b[1;32m";      // Green
-        else if (rawRating < 3.0) ratingColor = "\u001b[1;31m";  // Red
-    }
+    const rankDisplay = isRanked ? `#${rank}` : "Unranked";
 
-    // 2. Determine Rank Color
-    // Yellow: 33, Pink/Magenta: 35
+    // Determine Colors
+    let scoreColor = "\u001b[1;33m"; // Default Yellow
     let rankColor = "\u001b[1;34m"; // Default Blue
-    if (rank !== null) {
+
+    if (!isRanked) {
+        // ❌ Album is UNRANKED -> Grey out both the score and rank
+        scoreColor = "\u001b[1;30m";
+        rankColor = "\u001b[1;30m";
+    } else {
+        // ✅ Album is RANKED -> Use normal bright colors based on Bayesian score
+        if (rawScore !== null) {
+            if (rawScore >= 4.0) scoreColor = "\u001b[1;32m";      // Green
+            else if (rawScore < 3.0) scoreColor = "\u001b[1;31m";  // Red
+        }
+        
+        // Rank Colors
         if (rank <= 10) rankColor = "\u001b[1;35m";       // Hot Pink
         else if (rank <= 50) rankColor = "\u001b[1;33m";  // Yellow
     }
 
+    // Consolidated layout to 3 cleanly aligned lines
     return `\`\`\`ansi
-\u001b[2;34m ⭐ Average Rating: ${ratingColor}${ratingStr}\u001b[0m
+\u001b[2;34m ⭐ Score         : ${scoreColor}${scoreStr}\u001b[0m
 \u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m
 \u001b[2;34m 👥 Total Ratings : \u001b[1;34m${totalRatings}\u001b[0m
 \`\`\``;
 }
+
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");

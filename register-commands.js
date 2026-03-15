@@ -33,7 +33,7 @@ const commands = [
   },
   //#endregion
 
-    //#region Admin: Canonize albums
+    //#region Admin: Canonize albums by id
   {
     "name": "canonize-album-id",
     "description": "Link a duplicate album slug to the main canonical slug. Use with caution.. please!",

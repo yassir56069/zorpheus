@@ -392,18 +392,31 @@ export async function handleCanonizeAlbumById(
 
     const targetId = targetIdOpt.value as number;
     const canonId = canonIdOpt.value as number;
+    const userId = interaction.member!.user.id;
 
     const runBackgroundTask = async () => {
         try {
             console.log(`[ALBUM] Attempting to canonize by ID: ${targetId} -> ${canonId}`);
             // Call the new service function here
-            const result = await canonizeAlbumById(targetId, canonId);
+            if (userId == '508817156847173632' || userId == '259786443679858689')
+            {
 
-            await editInteractionResponse(interaction.token, {
-                content: result.success 
-                    ? `🔗 **Success:** ${result.message}` 
-                    : `❌ **Failed:** ${result.message}`
-            });
+                const result = await canonizeAlbumById(targetId, canonId);
+
+                await editInteractionResponse(interaction.token, {
+                    content: result.success 
+                        ? `🔗 **Success:** ${result.message}` 
+                        : `❌ **Failed:** ${result.message}`
+                });
+            }
+            else 
+            {
+
+                await editInteractionResponse(interaction.token, { 
+                    content: `❌ No Canonizing for you 😾😾. Contact me if you need/want to use this command!` 
+                });
+            }
+
 
         } catch (error) {
             console.error(`[ALBUM] FATAL error in canonize-album-id task:`, error);

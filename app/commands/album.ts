@@ -4,7 +4,8 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
     APIApplicationCommandInteractionDataStringOption,
-    ComponentType
+    ComponentType,
+    APIApplicationCommandInteractionDataIntegerOption
 } from 'discord-api-types/v10';
 import { 
     getAlbumWithStats, 
@@ -12,7 +13,8 @@ import {
     updateAlbumCoverArt, 
     getAlbumRatings, 
     getOrCreateAlbum, 
-    canonizeAlbum
+    canonizeAlbum,
+    canonizeAlbumById
 } from '@/utils/database/album-service';
 import { getUserLastFM } from '@/utils/database/user-service';
 import { getMergedAlbumGenres } from '@/utils/database/genre-service';
@@ -388,8 +390,8 @@ export async function handleCanonizeAlbumById(
          return new NextResponse('Missing required arguments', { status: 400 });
     }
 
-    const targetId = targetIdOpt.value;
-    const canonId = canonIdOpt.value;
+    const targetId = targetIdOpt.value as number;
+    const canonId = canonIdOpt.value as number;
 
     const runBackgroundTask = async () => {
         try {

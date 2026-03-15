@@ -325,7 +325,6 @@ export async function renderAlbumEmbed(slug: string) {
 }
 
 
-
 export async function handleCanonizeAlbum(
     interaction: APIChatInputApplicationCommandInteraction, 
     waitUntil: (promise: Promise<any>) => void
@@ -361,6 +360,51 @@ export async function handleCanonizeAlbum(
 
         } catch (error) {
             console.error(`[ALBUM] FATAL error in canonize-album task:`, error);
+            await editInteractionResponse(interaction.token, { 
+                content: `❌ An internal error occurred while canonizing the album.` 
+            });
+        }
+    };
+
+    // Defer the interaction immediately, process in background
+    waitUntil(runBackgroundTask());
+    return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
+}
+
+// Add this import at the top if it's not already there:
+// import { APIApplicationCommandInteractionDataIntegerOption } from 'discord-api-types/v10';
+
+export async function handleCanonizeAlbumById(
+    interaction: APIChatInputApplicationCommandInteraction, 
+    waitUntil: (promise: Promise<any>) => void
+) {
+    console.log("[ALBUM] Received /canonize-album-id command");
+
+    const options = interaction.data.options ??[];
+    const targetIdOpt = options.find(opt => opt.name === 'target-id') as APIApplicationCommandInteractionDataIntegerOption | undefined;
+    const canonIdOpt = options.find(opt => opt.name === 'canon-id') as APIApplicationCommandInteractionDataIntegerOption | undefined;
+
+    if (!targetIdOpt || !canonIdOpt) {
+         return new NextResponse('Missing required arguments', { status: 400 });
+    }
+
+    const targetId = targetIdOpt.value;
+    const canonId = canonIdOpt.value;
+
+    const runBackgroundTask = async () => {
+        try {
+            console.log(`[ALBUM] Attempting to canonize by ID: ${targetId} -> ${canonId}`);
+            // Call the new service function here
+            const result = await canonizeAlbumById(targetId, canonId);
+
+            await editInteractionResponse(interaction.token, {
+                content: result.success 
+                    ? `🔗 **Success:** ${result.message}` 
+                    : `❌ **Failed:** ${result.message}`
+            });
+
+        } catch (error) {
+            console.error(`[ALBUM] FATAL error in canonize-album-id task:`, error);
             await editInteractionResponse(interaction.token, { 
                 content: `❌ An internal error occurred while canonizing the album.` 
             });

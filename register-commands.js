@@ -33,6 +33,27 @@ const commands = [
   },
   //#endregion
 
+    //#region Admin: Canonize albums
+  {
+    "name": "canonize-album-id",
+    "description": "Link a duplicate album slug to the main canonical slug. Use with caution.. please!",
+    "options":[
+      {
+        "name": "target-id",
+        "description": "This should be the target (the incorrect album)",
+        "type": 3,
+        "required": true
+      },
+      {
+        "name": "canon-id",
+        "description": "This should be the canon album (priorize ones with year, and with ratings! ).",
+        "type": 3,
+        "required": true
+      }
+    ]
+  },
+  //#endregion
+
   //#region 
   {
     "name": "aotd",
@@ -120,6 +141,12 @@ const commands = [
           { "name": "Last 30 Days", "value": "month" },
           { "name": "Last Year", "value": "year" }
         ]
+      },
+      {
+        "name": "genre",
+        "description": "pass a genre name to generate a genre chart instead.",
+        "type": 3, 
+        "required": false
       }
     ]
   },
@@ -146,6 +173,12 @@ const commands = [
           { "name": "Last 30 Days", "value": "month" },
           { "name": "Last Year", "value": "year" }
         ]
+      },
+      {
+        "name": "genre",
+        "description": "pass a genre name to generate a genre chart instead.",
+        "type": 3, 
+        "required": false
       }
     ]
   },

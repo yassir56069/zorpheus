@@ -622,7 +622,58 @@ export async function canonizeAlbum(targetSlug: string, canonSlug: string): Prom
     }
 }
 
+export async function canonizeAlbumById(targetId: number, canonId: number): Promise<{ success: boolean; message: string }> {
+    if (targetId === canonId) {
+        return { success: false, message: "Target and canonical IDs cannot be the same." };
+    }
 
+    try {
+        // Find the Canonical Album to ensure it exists and to resolve its own ultimate canonical ID
+        const canonRes = await db.execute({
+            sql: `SELECT id, canonicalId FROM albums WHERE id = ?`,
+            args: [canonId]
+        });
+        
+        if (canonRes.rows.length === 0) {
+            return { success: false, message: `Canonical album ID \`${canonId}\` not found in the database.` };
+        }
+        
+        // Resolve the ultimate canonical ID (in case the provided canonId is already linked to another)
+        const resolvedCanonId = (canonRes.rows[0].canonicalId || canonRes.rows[0].id) as number;
+
+        // Find the Target Album to ensure it exists
+        const targetRes = await db.execute({
+            sql: `SELECT id, canonicalId FROM albums WHERE id = ?`,
+            args:[targetId]
+        });
+        
+        if (targetRes.rows.length === 0) {
+            return { success: false, message: `Target album ID \`${targetId}\` not found in the database.` };
+        }
+
+        // Check if they are already pointing to the same place
+        if (resolvedCanonId === targetId || resolvedCanonId === targetRes.rows[0].canonicalId) {
+            return { success: false, message: "These IDs already resolve to the same canonical album." };
+        }
+
+        // Update the target album to point to the resolved canonical ID
+        await db.execute({
+            sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
+            args: [resolvedCanonId, targetId]
+        });
+
+        // Update any other albums that were previously pointing to the target album
+        await db.execute({
+            sql: `UPDATE albums SET canonicalId = ? WHERE canonicalId = ?`,
+            args:[resolvedCanonId, targetId]
+        });
+
+        return { success: true, message: `Successfully linked album ID \`${targetId}\` to canonical album ID \`${canonId}\`.` };
+    } catch (error) {
+        console.error("Error in canonizeAlbumById:", error);
+        return { success: false, message: "A database error occurred while trying to canonize the album." };
+    }
+}
 
 /**
  * Gets a random, unhighlighted album from the top-ranked list,

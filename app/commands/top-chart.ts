@@ -148,7 +148,7 @@ async function createRankedChartImage(
             drawMissingAlbumText(ctx, `${artist} - ${title}`, imageSize);
         }
 
-        const score = Number(album.avgScore / 2).toFixed(2);
+        const score = Number((album.weightedScore || album.avgScore) / 2).toFixed(2);
         
         // --- SCORE BADGE (Bottom Right) ---
         ctx.font = `bold ${Math.floor(imageSize/12)}px "Courier New"`;

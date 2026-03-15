@@ -17,6 +17,7 @@ export interface AlbumStats {
     releaseYear: string | null;
     coverArtUrl: string | null;
     avgScore: number | null;
+    weightedScore?: number | null; // Added to support Bayesian average mapping
     ratingCount: number | null;
     rank: number | null;
 }
@@ -29,10 +30,10 @@ export interface UserRating {
 
 
 
+
 /**
  * Retrieves the top rated albums with pagination and optional date filtering.
  */
-
 export async function getTopAlbums(options: {
     page?: number;
     limit?: number;
@@ -55,7 +56,6 @@ export async function getTopAlbums(options: {
     const args: any[] =[];
 
     if (genre) {
-        // Find all canonical slugs where the album (or its canonical parent) has this genre
         genreCTE = `
         ValidGenreAlbums AS (
             SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
@@ -82,16 +82,22 @@ export async function getTopAlbums(options: {
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
             ${genreJoin}
-            -- Filter out archived/0 ratings right here
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
+        ),
+        GlobalStats AS (
+            -- Calculates C: Global Average across filtered pool
+            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
+            FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
+                -- Bayesian Formula: (v * R + m * C) / (v + m)
+                (SUM(score) + (${minRatings} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${minRatings}) as weightedScore
             FROM CombinedRatings
             GROUP BY albumId
         )
@@ -102,11 +108,11 @@ export async function getTopAlbums(options: {
             a.coverArtUrl,
             s.ratingCount,
             s.avgScore,
-            (s.avgScore / 2.0) as weightedScore
+            s.weightedScore
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
         WHERE s.ratingCount >= ?
-        ORDER BY s.avgScore DESC, s.ratingCount DESC
+        ORDER BY s.weightedScore DESC, s.ratingCount DESC
         LIMIT ? OFFSET ?
     `;
 
@@ -119,7 +125,6 @@ export async function getTopAlbums(options: {
 
 /**
  * Retrieves highly rated albums that are just shy of the minimum ratings threshold.
- * Ordered by rating count descending, then by average score descending.
  */
 export async function getDonorAlbums(options: {
     page?: number;
@@ -130,12 +135,10 @@ export async function getDonorAlbums(options: {
     const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
 
-    // Notice we changed 'WHERE' to 'AND' here
     const dateFilter = days 
         ? `AND r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
-    // Automatically drop the required ratings target to 3 for genre-specific charts
     const minRatingsTarget = genre ? 3 : MIN_RATINGS_TO_RANK;
 
     let genreCTE = '';
@@ -144,7 +147,6 @@ export async function getDonorAlbums(options: {
     const args: any[] =[];
 
     if (genre) {
-        // Find all canonical slugs where the album (or its canonical parent) has this genre
         genreCTE = `
         ValidGenreAlbums AS (
             SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
@@ -171,16 +173,20 @@ export async function getDonorAlbums(options: {
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
             ${genreJoin}
-            -- Filter out archived/0 ratings right here
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
+        ),
+        GlobalStats AS (
+            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
+            FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
+                (SUM(score) + (${minRatingsTarget} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${minRatingsTarget}) as weightedScore
             FROM CombinedRatings
             GROUP BY albumId
         )
@@ -191,22 +197,21 @@ export async function getDonorAlbums(options: {
             a.coverArtUrl,
             s.ratingCount,
             s.avgScore,
-            (s.avgScore / 2.0) as weightedScore
+            s.weightedScore
         FROM AlbumSums s
         JOIN albums a ON s.albumId = a.slug
         WHERE s.ratingCount < ? AND s.ratingCount > 0
-        ORDER BY s.ratingCount DESC, s.avgScore DESC
+        ORDER BY s.ratingCount DESC, s.weightedScore DESC
         LIMIT ? OFFSET ?
     `;
 
-    // Push the dynamic minRatingsTarget, limit, and offset to the args array
     args.push(minRatingsTarget, limit, offset);
 
     const result = await db.execute({ sql, args });
-    
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return result.rows as any
+    return result.rows as any;
 }
+
 
 export async function getOrCreateAlbum(albumData: {
     name: string;
@@ -387,10 +392,6 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
     }
 }
 
-/**
- * Gets an album by its slug, dynamically calculating its average score, 
- * rating count, and overall ranking among all albums (including merged ones).
- */
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
     const sql = `
         WITH CanonicalAlbums AS (
@@ -405,15 +406,20 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
                 MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
-            WHERE r.score > 0 -- ADDED: Filter out 0 scores entirely so they don't count
+            WHERE r.score > 0
             GROUP BY ca.canonical_slug, r.userId
+        ),
+        GlobalStats AS (
+            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
+            FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
+                (SUM(score) + (${MIN_RATINGS_TO_RANK} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
             FROM CombinedRatings 
             GROUP BY albumId
         ),
@@ -421,7 +427,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT 
                 albumId, 
                 RANK() OVER(
-                    ORDER BY avgScore DESC, ratingCount DESC
+                    ORDER BY weightedScore DESC, ratingCount DESC
                 ) as rank
             FROM AlbumSums
             WHERE ratingCount >= ?
@@ -430,20 +436,18 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- ADDED: Support truncated slugs by falling back to a LIKE wildcard
             WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
             LIMIT 1
         )
         SELECT 
             a.id, a.name, a.artistName, a.slug, a.mbid, a.releaseYear, a.coverArtUrl,
-            s.avgScore, s.ratingCount, r.rank
+            s.avgScore, s.weightedScore, s.ratingCount, r.rank
         FROM albums a
         JOIN TargetAlbum t ON a.slug = t.target_slug
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
 
-    // ADDED: Pass the extra params, dynamically adding '%' for the LIKE statement
     const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     
@@ -675,21 +679,14 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
     }
 }
 
-/**
- * Gets a random, unhighlighted album from the top-ranked list,
- * using the same canonical and rating logic as getTopAlbums.
- */
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
     try {
-        // This query is a modified version of getTopAlbums to find eligible candidates
         const sql = `
-            -- Step 1: Handle canonical albums, same as getTopAlbums
             WITH CanonicalAlbums AS (
                 SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
                 FROM albums a
                 LEFT JOIN albums c ON a.canonicalId = c.id
             ),
-            -- Step 2: Get the highest rating per user for each canonical album
             CombinedRatings AS (
                 SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
                 FROM ratings r
@@ -697,30 +694,31 @@ export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<
                 WHERE r.score > 0
                 GROUP BY ca.canonical_slug, r.userId
             ),
-            -- Step 3: Calculate sums and averages
+            GlobalStats AS (
+                SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
+                FROM CombinedRatings
+            ),
             AlbumSums AS (
                 SELECT 
                     albumId, 
                     COUNT(userId) as ratingCount,
-                    (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                    (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
+                    (SUM(score) + (${MIN_RATINGS_FOR_HIGHLIGHT} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${MIN_RATINGS_FOR_HIGHLIGHT}) as weightedScore
                 FROM CombinedRatings
                 GROUP BY albumId
             ),
-            -- Step 4: Find the top albums that are ELIGIBLE for highlight
             EligibleTopAlbums AS (
                 SELECT 
                     s.albumId as slug
                 FROM AlbumSums s
-                -- We must join back to the main albums table to check the highlight field
                 JOIN albums a ON s.albumId = a.slug
                 WHERE 
-                    s.ratingCount >= ? -- Use the minimum ratings rule
-                    AND a.albumHighlight IS NULL -- The key filter for this function
+                    s.ratingCount >= ? 
+                    AND a.albumHighlight IS NULL 
                 ORDER BY 
-                    s.avgScore DESC, s.ratingCount DESC -- Order to find the "top" albums
-                LIMIT ? -- Limit the pool to the top N (e.g., 30)
+                    s.weightedScore DESC, s.ratingCount DESC 
+                LIMIT ? 
             )
-            -- Step 5: From the final pool of eligible albums, pick one at random
             SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
         `;
 
@@ -736,7 +734,7 @@ export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<
 
     } catch (e) {
         console.error("[DB] FATAL ERROR in getRandomTopUnhighlightedAlbum:", e);
-        throw e; // Propagate the error to be caught by the command handler
+        throw e;
     }
 }
 

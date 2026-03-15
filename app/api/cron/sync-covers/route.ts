@@ -33,12 +33,17 @@ export async function GET(req: Request) {
             WHERE r.score > 0 
             GROUP BY ca.canonical_slug, r.userId
         ),
+        GlobalStats AS (
+            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
+            FROM CombinedRatings
+        ),
         AlbumSums AS (
             SELECT 
                 albumId, 
                 SUM(score) as sumScore, 
                 COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore
+                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
+                (SUM(score) + (3 * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + 3) as weightedScore
             FROM CombinedRatings 
             GROUP BY albumId
         )
@@ -57,7 +62,7 @@ export async function GET(req: Request) {
             OR a.genresChecked = FALSE 
             OR a.genresChecked = 0
           )
-        ORDER BY s.avgScore DESC, s.ratingCount DESC
+        ORDER BY s.weightedScore DESC, s.ratingCount DESC
         LIMIT 200
     `;
 

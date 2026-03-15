@@ -304,7 +304,12 @@ export async function renderAlbumEmbed(slug: string) {
         ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
         : ''; // If no genres, it won't render the line
 
-    const statsBlock = formatAlbumStats(album.avgScore, album.rank, album.ratingCount || 0);
+    const statsBlock = formatAlbumStats(
+        album.avgScore, 
+        album.weightedScore ?? null, 
+        album.rank, 
+        album.ratingCount || 0
+    );
 
     return {
         data: {

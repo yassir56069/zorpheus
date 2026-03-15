@@ -419,7 +419,7 @@ export async function handleCanonizeAlbumById(
         try {
             console.log(`[ALBUM] Attempting to canonize by ID: ${targetId} -> ${canonId}`);
             // Call the new service function here
-            if (userId == '508817156847173632' || userId == '259786443679858689')
+            if (userId == '508817156847173632' || userId == '259786443679858689' || userId == '959791198938230784')
             {
 
                 const result = await canonizeAlbumById(targetId, canonId);

@@ -138,7 +138,7 @@ export function mapLastFmTagToGenre(tag: string): string | null {
         "house": "electronic",
         "techno": "electronic",
         "indie": "indie rock",
-        "alternative country": "alt country",
+        "alt country": "alternative country",
     };
 
     if (EXACT_MAPPINGS[t]) return EXACT_MAPPINGS[t];

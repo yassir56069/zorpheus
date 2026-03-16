@@ -26,26 +26,27 @@ export async function GET(req: Request) {
             FROM albums a 
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
-        CombinedRatings AS (
+        CombinedRatings AS MATERIALIZED (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score 
             FROM ratings r 
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug 
             WHERE r.score > 0 
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS (
+        GlobalStats AS MATERIALIZED (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
-                albumId, 
-                SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
-                (SUM(score) + (3 * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + 3) as weightedScore
-            FROM CombinedRatings 
-            GROUP BY albumId
+                c.albumId, 
+                SUM(c.score) as sumScore, 
+                COUNT(c.userId) as ratingCount,
+                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                (SUM(c.score) + (3 * g.globalAvg)) / (COUNT(c.userId) + 3) as weightedScore
+            FROM CombinedRatings c
+            CROSS JOIN GlobalStats g
+            GROUP BY c.albumId, g.globalAvg
         )
         SELECT 
             a.name, 
@@ -62,8 +63,8 @@ export async function GET(req: Request) {
             OR a.genresChecked = FALSE 
             OR a.genresChecked = 0
           )
-        ORDER BY s.weightedScore DESC, s.ratingCount DESC
-        LIMIT 200
+    ORDER BY s.weightedScore DESC, s.ratingCount DESC
+    LIMIT 200
     `;
 
     const result = await db.execute(sql);

@@ -70,14 +70,15 @@ export async function getTopAlbums(options: {
         args.push(genre.toLowerCase());
     }
 
-    const sql = `
+const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
         ${genreCTE}
-        CombinedRatings AS (
+        -- MATERIALIZED forces SQLite to do this step only once and cache it in memory
+        CombinedRatings AS MATERIALIZED (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
@@ -85,21 +86,21 @@ export async function getTopAlbums(options: {
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS (
-            -- Calculates C: Global Average across filtered pool
+        GlobalStats AS MATERIALIZED (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
-                albumId, 
-                SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
-                -- Bayesian Formula: (v * R + m * C) / (v + m)
-                (SUM(score) + (${minRatings} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${minRatings}) as weightedScore
-            FROM CombinedRatings
-            GROUP BY albumId
+                c.albumId, 
+                SUM(c.score) as sumScore, 
+                COUNT(c.userId) as ratingCount,
+                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                -- We get globalAvg from the CROSS JOIN below instead of a subquery
+                (SUM(c.score) + (${minRatings} * g.globalAvg)) / (COUNT(c.userId) + ${minRatings}) as weightedScore
+            FROM CombinedRatings c
+            CROSS JOIN GlobalStats g
+            GROUP BY c.albumId, g.globalAvg
         )
         SELECT 
             a.name, 
@@ -161,14 +162,14 @@ export async function getDonorAlbums(options: {
         args.push(genre.toLowerCase());
     }
 
-    const sql = `
+const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
         ${genreCTE}
-        CombinedRatings AS (
+        CombinedRatings AS MATERIALIZED (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
@@ -176,19 +177,20 @@ export async function getDonorAlbums(options: {
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS (
+        GlobalStats AS MATERIALIZED (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
-                albumId, 
-                SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
-                (SUM(score) + (${minRatingsTarget} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${minRatingsTarget}) as weightedScore
-            FROM CombinedRatings
-            GROUP BY albumId
+                c.albumId, 
+                SUM(c.score) as sumScore, 
+                COUNT(c.userId) as ratingCount,
+                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                (SUM(c.score) + (${minRatingsTarget} * g.globalAvg)) / (COUNT(c.userId) + ${minRatingsTarget}) as weightedScore
+            FROM CombinedRatings c
+            CROSS JOIN GlobalStats g
+            GROUP BY c.albumId, g.globalAvg
         )
         SELECT 
             a.name, 
@@ -393,13 +395,13 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 }
 
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
-    const sql = `
+const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
-        CombinedRatings AS (
+        CombinedRatings AS MATERIALIZED (
             SELECT 
                 ca.canonical_slug as albumId,
                 r.userId,
@@ -409,19 +411,20 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
             WHERE r.score > 0
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS (
+        GlobalStats AS MATERIALIZED (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
         AlbumSums AS (
             SELECT 
-                albumId, 
-                SUM(score) as sumScore, 
-                COUNT(userId) as ratingCount,
-                (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
-                (SUM(score) + (${MIN_RATINGS_TO_RANK} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
-            FROM CombinedRatings 
-            GROUP BY albumId
+                c.albumId, 
+                SUM(c.score) as sumScore, 
+                COUNT(c.userId) as ratingCount,
+                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                (SUM(c.score) + (${MIN_RATINGS_TO_RANK} * g.globalAvg)) / (COUNT(c.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
+            FROM CombinedRatings c
+            CROSS JOIN GlobalStats g
+            GROUP BY c.albumId, g.globalAvg
         ),
         RankedAlbums AS (
             SELECT 
@@ -681,31 +684,32 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
 
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
     try {
-        const sql = `
+const sql = `
             WITH CanonicalAlbums AS (
                 SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
                 FROM albums a
                 LEFT JOIN albums c ON a.canonicalId = c.id
             ),
-            CombinedRatings AS (
+            CombinedRatings AS MATERIALIZED (
                 SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
                 FROM ratings r
                 JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
                 WHERE r.score > 0
                 GROUP BY ca.canonical_slug, r.userId
             ),
-            GlobalStats AS (
+            GlobalStats AS MATERIALIZED (
                 SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
                 FROM CombinedRatings
             ),
             AlbumSums AS (
                 SELECT 
-                    albumId, 
-                    COUNT(userId) as ratingCount,
-                    (CAST(SUM(score) AS FLOAT) / COUNT(userId)) as avgScore,
-                    (SUM(score) + (${MIN_RATINGS_FOR_HIGHLIGHT} * (SELECT globalAvg FROM GlobalStats))) / (COUNT(userId) + ${MIN_RATINGS_FOR_HIGHLIGHT}) as weightedScore
-                FROM CombinedRatings
-                GROUP BY albumId
+                    c.albumId, 
+                    COUNT(c.userId) as ratingCount,
+                    (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                    (SUM(c.score) + (${MIN_RATINGS_FOR_HIGHLIGHT} * g.globalAvg)) / (COUNT(c.userId) + ${MIN_RATINGS_FOR_HIGHLIGHT}) as weightedScore
+                FROM CombinedRatings c
+                CROSS JOIN GlobalStats g
+                GROUP BY c.albumId, g.globalAvg
             ),
             EligibleTopAlbums AS (
                 SELECT 
@@ -721,7 +725,6 @@ export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<
             )
             SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
         `;
-
         const args = [MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
 
         const result = await db.execute({ sql, args });

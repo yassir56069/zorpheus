@@ -67,11 +67,11 @@ export async function handleTopAlbums(interaction: APIChatInputApplicationComman
 
             const list = albums.map((a, i) => {
                 const rank = (page - 1) * limit + (i + 1);
-                const score = Number(a.weightedScore).toFixed(2);
+                const score= Number(a.weightedScore).toFixed(2) as unknown as number;
                 const artist = a.artistName.substring(0, 40);
                 const name = a.name.substring(0, 40);
                 
-                return `**${rank}.** ${artist} - *${name}* • **${score}** ★ \`(${a.ratingCount})\``;
+                return `**${rank}.** ${artist} - *${name}* • **${score/2}** ★ \`(${a.ratingCount})\``;
             }).join('\n');
 
             // Dynamically build the title
@@ -152,14 +152,14 @@ export async function handleDonorAlbums(interaction: APIChatInputApplicationComm
 
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const list = albums.map((a: { weightedScore: any; artistName: string; name: string; ratingCount: number; }, i: any) => {
-                const score = Number(a.weightedScore).toFixed(2);
+                const score = Number(a.weightedScore).toFixed(2) as unknown as number;
                 const artist = a.artistName.substring(0, 40);
                 const name = a.name.substring(0, 40);
                 
                 // Calculate missing ratings based on the dynamic target
                 const needed = minRatingsTarget - a.ratingCount;
                 
-                return `**${artist}** - *${name}* • **${score}** ★ \`(${a.ratingCount}/${minRatingsTarget})\` *(Needs ${needed} more!)*`;
+                return `**${artist}** - *${name}* • **${score/2}** ★ \`(${a.ratingCount}/${minRatingsTarget})\` *(Needs ${needed} more!)*`;
             }).join('\n');
 
             const baseTitle = displayGenre ? `${displayGenre} Chart Pushers` : `Chart Pushers`;

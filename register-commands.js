@@ -120,6 +120,21 @@ const commands = [
   },
   //#endregion
 
+  //#region Artist Search
+    {
+      name: 'artist-search',
+      description: ' 👨‍🎤 search for an artist to view their discography',
+      options:[
+        {
+          name: 'searchterm',
+          description: 'Try the exact or partial name of the artist.',
+          type: 3, // STRING
+          required: true,
+        },
+      ],
+    },
+    //#endregion
+
   //#region Top Albums 
   {
     "name": "top-albums",

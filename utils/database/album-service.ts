@@ -29,6 +29,109 @@ export interface UserRating {
 }
 
 
+export interface ArtistAlbumStat {
+    name: string;
+    slug: string;
+    releaseYear: string | null;
+    avgScore: number | null;
+    weightedScore: number | null;
+    ratingCount: number;
+}
+
+//#region Artists
+
+/**
+ * Searches unique artists from the albums table and counts their database entries
+ */
+export async function searchArtists(query: string) {
+    const cleanQuery = query.trim().replace(/\s+/g, '%');
+    if (!cleanQuery) return[];
+    
+    const searchTerm = `%${cleanQuery}%`;
+
+    // Grouping by LOWER(artistName) but returning the MAX original case for visual accuracy.
+    // canonicalId IS NULL prevents duplicate counts for original/canonical variants.
+    const sql = `
+        SELECT 
+            MAX(a.artistName) as artistName,
+            COUNT(DISTINCT COALESCE(a.canonicalId, a.id)) as albumCount
+        FROM albums a
+        WHERE a.artistName LIKE ?
+        GROUP BY LOWER(a.artistName)
+        ORDER BY albumCount DESC
+        LIMIT 25
+    `;
+
+    const result = await db.execute({ sql, args: [searchTerm] });
+    return result.rows as unknown as Array<{ artistName: string, albumCount: number }>;
+}
+
+/**
+ * Retrieves an artist's discography and calculates local Bayesian scores
+ */
+export async function getArtistAlbums(artistName: string): Promise<ArtistAlbumStat[]> {
+    const sql = `
+        WITH TargetCanonicalSlugs AS (
+            SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug,
+                   COALESCE(c.name, a.name) as name,
+                   COALESCE(c.releaseYear, a.releaseYear) as releaseYear
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            WHERE a.artistName = ? COLLATE NOCASE
+        ),
+        TargetOriginalSlugs AS (
+            SELECT a.slug as original_slug, tcs.canonical_slug
+            FROM albums a
+            JOIN albums c ON a.canonicalId = c.id
+            JOIN TargetCanonicalSlugs tcs ON c.slug = tcs.canonical_slug
+            UNION
+            SELECT tcs.canonical_slug as original_slug, tcs.canonical_slug
+            FROM TargetCanonicalSlugs tcs
+        ),
+        ArtistRatings AS (
+            SELECT 
+                tos.canonical_slug as albumId,
+                r.userId,
+                MAX(r.score) as score
+            FROM ratings r
+            JOIN TargetOriginalSlugs tos ON r.albumId = tos.original_slug
+            WHERE r.score > 0
+            GROUP BY tos.canonical_slug, r.userId
+        ),
+        GlobalStats AS (
+            -- Fast single-read approximation of global stats
+            SELECT COALESCE(AVG(score), 0) as globalAvg FROM ratings WHERE score > 0
+        ),
+        AlbumSums AS (
+            SELECT 
+                ar.albumId,
+                COUNT(ar.userId) as ratingCount,
+                AVG(ar.score) as avgScore,
+                (SUM(ar.score) + (${MIN_RATINGS_TO_RANK} * g.globalAvg)) / (COUNT(ar.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
+            FROM ArtistRatings ar
+            CROSS JOIN GlobalStats g
+            GROUP BY ar.albumId, g.globalAvg
+        )
+        SELECT 
+            tcs.name,
+            tcs.canonical_slug as slug,
+            tcs.releaseYear,
+            COALESCE(s.ratingCount, 0) as ratingCount,
+            s.avgScore,
+            s.weightedScore
+        FROM TargetCanonicalSlugs tcs
+        LEFT JOIN AlbumSums s ON tcs.canonical_slug = s.albumId
+        ORDER BY 
+            CASE WHEN tcs.releaseYear IS NULL THEN 0 ELSE 1 END,
+            tcs.releaseYear ASC,
+            tcs.name ASC
+    `;
+
+    const result = await db.execute({ sql, args: [artistName] });
+    return result.rows as unknown as ArtistAlbumStat[];
+}
+
+//#endregion
 
 
 /**

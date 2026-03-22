@@ -34,6 +34,7 @@ import { handleDonorAlbums, handleTopAlbums } from '@/app/commands/top-albums';
 import { handleTopChart } from '@/app/commands/top-chart';
 import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assign-genre';
 import { handleAlbumHighlight } from '@/app/commands/aotd';
+import { renderArtistEmbed } from '@/app/commands/artists';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -250,6 +251,73 @@ export async function POST(req: Request) {
                 });
             }
             //#endregion
+            if (customId === 'album_search_select') {
+                const selectedSlug = componentInteraction.data.values[0];
+                
+                // Fire off the background task safely using waitUntil
+                waitUntil((async () => {
+                    try {
+                        const result = await renderAlbumEmbed(selectedSlug);
+                        
+                        await editInteractionResponse(interaction.token, {
+                            content: "", 
+                            ...result.data
+                            // NOTE: We do NOT clear the menu array here, 
+                            // so the rating dropdown properly attaches to the search result!
+                        });
+
+                    } catch (error) {
+                        console.error("[ALBUM] Select Menu Background Error:", error);
+                        await editInteractionResponse(interaction.token, { 
+                            content: `❌ An internal error occurred while retrieving the album.`,
+                            embeds: [],
+                            components: []
+                        });
+                    }
+                })());
+
+                // IMMEDIATELY update the message to a loading state 
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
+                        content: `⏳ Fetching statistics and cover art for \`${selectedSlug}\`. This might take a moment...`,
+                        embeds: [],
+                        components: []
+                    }
+                });
+            }
+            //#region Artist Search
+            if (customId === 'artist_search_select') {
+                const selectedArtist = componentInteraction.data.values[0];
+                
+                // Fire off the background task safely using waitUntil
+                waitUntil((async () => {
+                    try {
+                        const result = await renderArtistEmbed(selectedArtist);
+                        
+                        await editInteractionResponse(interaction.token, {
+                            content: "", 
+                            ...result.data
+                        });
+                    } catch (error) {
+                        console.error("[ARTIST] Select Menu Background Error:", error);
+                        await editInteractionResponse(interaction.token, { 
+                            content: `❌ Could not load discography.`
+                        });
+                    }
+                })());
+
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
+                        content: `⏳ Loading discography for **${selectedArtist}**...`,
+                        embeds: [],
+                        components: []
+                    }
+                });
+            }
+            //#endregion
+            
         }
         //#endregion
 

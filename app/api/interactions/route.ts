@@ -34,7 +34,7 @@ import { handleDonorAlbums, handleTopAlbums } from '@/app/commands/top-albums';
 import { handleTopChart } from '@/app/commands/top-chart';
 import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assign-genre';
 import { handleAlbumHighlight } from '@/app/commands/aotd';
-import { renderArtistEmbed } from '@/app/commands/artists';
+import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -85,6 +85,8 @@ export async function POST(req: Request) {
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':
                 return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'artist-search':
+                return handleArtistSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-albums':
                 return handleTopAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'donor-albums':

@@ -97,7 +97,7 @@ export async function renderArtistEmbed(artistName: string) {
         const yearPrefix = `\`[${a.releaseYear || '????'}]\``;
 
         if (activeScore === null) {
-            return `${yearPrefix} **N/A** ➖ : \`${a.name}\` *(👥 ${a.ratingCount})*`;
+            return `${yearPrefix} **0.0** ☆☆☆☆☆: \`${a.name}\` *(👥 ${a.ratingCount})*`;
         }
 
         // Convert the /10 score to a /5 float string (e.g. 4.1)

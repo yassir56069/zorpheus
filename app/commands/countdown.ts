@@ -33,13 +33,13 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
                             type: ComponentType.Button,
                             style: ButtonStyle.Success,
                             label: 'Start',
-                            custom_id: 'start_countdown',
+                            custom_id: 'countdown_start',
                         },
                         {
                             type: ComponentType.Button,
                             style: ButtonStyle.Danger,
                             label: 'Cancel',
-                            custom_id: 'cancel_countdown',
+                            custom_id: 'countdown_cancel',
                         },
                     ],
                 },
@@ -56,7 +56,7 @@ export function handleCountdown(interaction: APIChatInputApplicationCommandInter
 export async function handleCountdownInteraction(interaction: APIMessageComponentButtonInteraction): Promise<NextResponse> {
     const { custom_id } = interaction.data;
 
-    if (custom_id === 'cancel_countdown') {
+    if (custom_id === 'countdown_cancel') {
         // This is a simple, immediate update. This logic is fine.
         return new NextResponse(JSON.stringify({
             type: InteractionResponseType.UpdateMessage,
@@ -73,7 +73,7 @@ export async function handleCountdownInteraction(interaction: APIMessageComponen
         });
     }
 
-    if (custom_id === 'start_countdown') {
+    if (custom_id === 'countdown_start') {
         const { token, application_id } = interaction;
         const webhookUrl = `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`;
 

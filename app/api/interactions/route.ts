@@ -276,7 +276,7 @@ export async function POST(req: Request) {
             //#endregion
 
             //#region Counter
-            if (customId.startsWith('countdown_')) { 
+            if (customId.startsWith('countdown_start')) { 
                 return handleCountdownInteraction(buttonInteraction);
             }
             //#endregion

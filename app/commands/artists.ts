@@ -71,6 +71,15 @@ export async function handleArtistSearch(interaction: APIChatInputApplicationCom
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
+
+function getStars(score: number): string {
+    const fullStars = Math.floor(score / 2);
+    const halfStar = score % 2 !== 0 ? '½' : '';
+    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
+    return '★'.repeat(fullStars) + halfStar + '☆'.repeat(emptyStars);
+}
+
+
 export async function renderArtistEmbed(artistName: string) {
     const albums = await getArtistAlbums(artistName);
 
@@ -95,22 +104,34 @@ export async function renderArtistEmbed(artistName: string) {
 
     const formatLine = (a: typeof albums[0]) => {
         const isRanked = a.ratingCount >= MIN_RATINGS_TO_RANK;
-        const activeScore = (isRanked && a.weightedScore !== null) ? a.weightedScore : a.avgScore;
-        const rawScore = activeScore !== null ? (Number(activeScore) / 2).toFixed(2) : "N/A";
         
-        const scoreDisplay = activeScore !== null ? `⭐ **${rawScore}**` : `➖ **N/A**`;
-        return `${scoreDisplay} *(👥 ${a.ratingCount})* \`${a.name}\``;
+        // Use weighted Bayesian score if it qualifies, otherwise raw average
+        const activeScore = (isRanked && a.weightedScore !== null) ? a.weightedScore : a.avgScore;
+        
+        if (activeScore === null) {
+            return `**N/A** ➖ : \`${a.name}\``;
+        }
+
+        // Convert the /10 score to a /5 float string (e.g. 4.1)
+        const rawScore = (Number(activeScore) / 2).toFixed(1);
+        
+        // getStars expects an integer out of 10. We round the DB float to the nearest whole number to get accurate half-stars
+        const starInt = Math.round(Number(activeScore));
+        const starsDisplay = getStars(starInt);
+        
+        return `**${rawScore}** ${starsDisplay} : \`${a.name}\` *(👥 ${a.ratingCount})*`;
     };
 
     if (unknownYear.length > 0) {
         description += `**Unknown Release Year**\n`;
-        description += unknownYear.map(a => `> ${formatLine(a)}`).join('\n');
+        description += unknownYear.map(a => formatLine(a)).join('\n');
         description += `\n\n`;
     }
 
     const sortedYears = Object.keys(knownYear).sort();
     for (const year of sortedYears) {
-        const block = `**${year}**\n` + knownYear[year].map(a => `> ${formatLine(a)}`).join('\n') + `\n\n`;
+        // Removed the "> " quotes, just clean stacked strings
+        const block = `**${year}**\n` + knownYear[year].map(a => formatLine(a)).join('\n') + `\n\n`;
         
         // Discord embeds max out at 4096. Truncating here to play it safe.
         if (description.length + block.length > 3900) {
@@ -130,7 +151,7 @@ export async function renderArtistEmbed(artistName: string) {
             }],
             // Clever UX: Because the user might want to drill down into a specific album 
             // from the artist page, we can inject your existing `album_search_select` router!
-            components: albums.length > 0 ?[{
+            components: albums.length > 0 ? [{
                 type: ComponentType.ActionRow,
                 components:[{
                     type: ComponentType.StringSelect,

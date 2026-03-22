@@ -87,58 +87,41 @@ export async function renderArtistEmbed(artistName: string) {
         return { data: { content: `❌ Could not find any albums for artist \`${artistName}\` in database.` } };
     }
 
-    const unknownYear: typeof albums =[];
-    const knownYear: Record<string, typeof albums> = {};
-
-    // Group items by release year
-    for (const album of albums) {
-        if (!album.releaseYear) {
-            unknownYear.push(album);
-        } else {
-            if (!knownYear[album.releaseYear]) knownYear[album.releaseYear] = [];
-            knownYear[album.releaseYear].push(album);
-        }
-    }
-
-    let description = "";
-
     const formatLine = (a: typeof albums[0]) => {
         const isRanked = a.ratingCount >= MIN_RATINGS_TO_RANK;
         
         // Use weighted Bayesian score if it qualifies, otherwise raw average
         const activeScore = (isRanked && a.weightedScore !== null) ? a.weightedScore : a.avgScore;
         
+        // Add the year prefix at the start of the line
+        const yearPrefix = `\`[${a.releaseYear || '????'}]\``;
+
         if (activeScore === null) {
-            return `**N/A** ➖ : \`${a.name}\``;
+            return `${yearPrefix} **N/A** ➖ : \`${a.name}\` *(👥 ${a.ratingCount})*`;
         }
 
         // Convert the /10 score to a /5 float string (e.g. 4.1)
         const rawScore = (Number(activeScore) / 2).toFixed(1);
         
-        // getStars expects an integer out of 10. We round the DB float to the nearest whole number to get accurate half-stars
+        // getStars expects an integer out of 10. We round the DB float to get accurate half-stars
         const starInt = Math.round(Number(activeScore));
         const starsDisplay = getStars(starInt);
         
-        return `**${rawScore}** ${starsDisplay} : \`${a.name}\` *(👥 ${a.ratingCount})*`;
+        return `${yearPrefix} **${rawScore}** ${starsDisplay} : \`${a.name}\` *(👥 ${a.ratingCount})*`;
     };
 
-    if (unknownYear.length > 0) {
-        description += `**Unknown Release Year**\n`;
-        description += unknownYear.map(a => formatLine(a)).join('\n');
-        description += `\n\n`;
-    }
+    let description = "";
 
-    const sortedYears = Object.keys(knownYear).sort();
-    for (const year of sortedYears) {
-        // Removed the "> " quotes, just clean stacked strings
-        const block = `**${year}**\n` + knownYear[year].map(a => formatLine(a)).join('\n') + `\n\n`;
+    for (const album of albums) {
+        const line = formatLine(album) + "\n";
         
         // Discord embeds max out at 4096. Truncating here to play it safe.
-        if (description.length + block.length > 3900) {
+        if (description.length + line.length > 3900) {
             description += `*...and more (character limit reached)*\n`;
             break;
         }
-        description += block;
+        
+        description += line;
     }
 
     return {
@@ -149,8 +132,6 @@ export async function renderArtistEmbed(artistName: string) {
                 color: 0x9b59b6, // Purple-ish
                 footer: { text: `Total Albums: ${albums.length} | Bayesian scores require ${MIN_RATINGS_TO_RANK} global ratings` }
             }],
-            // Clever UX: Because the user might want to drill down into a specific album 
-            // from the artist page, we can inject your existing `album_search_select` router!
             components: albums.length > 0 ? [{
                 type: ComponentType.ActionRow,
                 components:[{

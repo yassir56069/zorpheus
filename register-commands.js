@@ -123,7 +123,7 @@ const commands = [
   //#region Artist Search
     {
       name: 'artist-search',
-      description: ' search for an artist to view their discography',
+      description: '🎭 search for an artist to view their discography',
       options:[
         {
           name: 'searchterm',

@@ -14,6 +14,7 @@ import {
     getAlbumRatings, 
     getOrCreateAlbum, 
     canonizeAlbum,
+    searchArtists,
     canonizeAlbumById
 } from '@/utils/database/album-service';
 import { getUserLastFM } from '@/utils/database/user-service';
@@ -295,6 +296,11 @@ export async function renderAlbumEmbed(slug: string) {
     // Fetch associated data
     const ratings = await getAlbumRatings(album.slug);
     const genres = await getMergedAlbumGenres(album.slug);
+
+    // NEW: Fetch artist info to get their total album count in the database
+    const artistHits = await searchArtists(album.artistName);
+    const exactArtist = artistHits.find(h => h.artistName.toLowerCase() === album.artistName.toLowerCase()) || artistHits[0];
+    const albumCount = exactArtist ? exactArtist.albumCount : 1;
     
     const ratingsDisplay = ratings.length > 0 
         ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
@@ -323,30 +329,45 @@ export async function renderAlbumEmbed(slug: string) {
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
                 footer: { text: `ID: ${album.id} | Slug: ${album.slug}` }
             }],
-            components:[{
-                type: ComponentType.ActionRow,
-                components:[{
-                    type: ComponentType.StringSelect,
-                    custom_id: `rate_album_embed`,
-                    placeholder: "Rate this album",
-                    options: [
-                        { label: '[5.0] ★★★★★', value: '10' },
-                        { label: '[4.5] ★★★★½', value: '9' },
-                        { label: '[4.0] ★★★★', value: '8' },
-                        { label: '[3.5] ★★★½', value: '7' },
-                        { label: '[3.0] ★★★', value: '6' },
-                        { label: '[2.5] ★★½', value: '5' },
-                        { label: '[2.0] ★★', value: '4' },
-                        { label: '[1.5] ★½', value: '3' },
-                        { label: '[1.0] ★', value: '2' },
-                        { label: '[0.5] ½', value: '1' },
+            components:[
+                {
+                    type: ComponentType.ActionRow,
+                    components:[{
+                        type: ComponentType.StringSelect,
+                        custom_id: `rate_album_embed`,
+                        placeholder: "Rate this album",
+                        options:[
+                            { label: '[5.0] ★★★★★', value: '10' },
+                            { label: '[4.5] ★★★★½', value: '9' },
+                            { label: '[4.0] ★★★★', value: '8' },
+                            { label: '[3.5] ★★★½', value: '7' },
+                            { label: '[3.0] ★★★', value: '6' },
+                            { label: '[2.5] ★★½', value: '5' },
+                            { label: '[2.0] ★★', value: '4' },
+                            { label: '[1.5] ★½', value: '3' },
+                            { label: '[1.0] ★', value: '2' },
+                            { label: '[0.5] ½', value: '1' },
+                        ]
+                    }]
+                },
+                // --- NEW ROW: View Artist Button ---
+                {
+                    type: ComponentType.ActionRow,
+                    components:[
+                        {
+                            type: 2, // ComponentType.Button
+                            style: 2, // Secondary (Gray button)
+                            // Encode the artist name into the custom_id (cap at 80 chars to stay under 100 limit)
+                            custom_id: `view_artist:${album.artistName.substring(0, 80)}`,
+                            label: `View ${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
+                            emoji: { name: '👨‍🎤' }
+                        }
                     ]
-                }]
-            }]
+                }
+            ]
         }
     };
 }
-
 
 export async function handleCanonizeAlbum(
     interaction: APIChatInputApplicationCommandInteraction, 

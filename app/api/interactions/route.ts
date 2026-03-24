@@ -140,7 +140,6 @@ export async function POST(req: Request) {
             if (customId.startsWith('rate_select_')) {
                 const userIdFromId = customId.replace('rate_select_', '');
                 const actingUserId = selectInteraction.member?.user.id || selectInteraction.user?.id;
-                const token = selectInteraction.token;
 
                 if (actingUserId !== userIdFromId) {
                     return NextResponse.json({
@@ -149,30 +148,22 @@ export async function POST(req: Request) {
                     });
                 }
 
-                // 1. Acknowledge the interaction immediately (shows nothing to user, just prevents timeout)
-                const response = NextResponse.json({
-                    type: InteractionResponseType.DeferredMessageUpdate
-                });
+                const score = parseInt(selectInteraction.data.values[0]);
+                const embed = selectInteraction.message.embeds[0];
+                const description = embed.description || "";
+                const [artistName, albumName] = description.split(' - ').map(s => s.replace(/[\*\?]/g, '').trim());
 
-                // 2. Background task
-                waitUntil((async () => {
-                    const score = parseInt(selectInteraction.data.values[0]);
-                    const embed = selectInteraction.message.embeds[0];
-                    const description = embed.description || "";
-                    const [artistName, albumName] = description.split(' - ').map(s => s.replace(/[\*\?]/g, '').trim());
+                const album = await getOrCreateAlbum({ name: albumName, artistName, userId: actingUserId! });
+                await upsertRating(actingUserId!, album!.slug as string, score);
 
-                    const album = await getOrCreateAlbum({ name: albumName, artistName, userId: actingUserId! });
-                    await upsertRating(actingUserId!, album!.slug as string, score);
-
-                    // 3. Edit the message to show success and remove components
-                    await editInteractionResponse(token, {
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
                         content: `✅ Successfully rated **${albumName}** by **${artistName}**: **${score / 2}** stars.`,
-                        embeds: [], // Remove the embed
-                        components: [] // Remove the dropdown
-                    });
-                })());
-
-                return response;
+                        embeds:[],
+                        components:[]
+                    }
+                });
             }
             //#endregion
 

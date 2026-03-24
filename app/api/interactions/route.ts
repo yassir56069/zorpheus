@@ -35,6 +35,7 @@ import { handleTopChart } from '@/app/commands/top-chart';
 import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assign-genre';
 import { handleAlbumHighlight } from '@/app/commands/aotd';
 import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
+import { getAlbumById } from '@/utils/database/album-service';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -216,32 +217,7 @@ export async function POST(req: Request) {
             }
             //#endregion
 
-            //#region View Artist Button (From Album Embed)
-            if (customId.startsWith('view_artist:')) {
-                // Extract the artist name from the custom ID
-                const artistName = customId.substring('view_artist:'.length);
-                
-                waitUntil((async () => {
-                    try {
-                        const result = await renderArtistEmbed(artistName);
-                        
-                        await editInteractionResponse(interaction.token, {
-                            content: "", 
-                            ...result.data
-                        });
-                    } catch (error) {
-                        console.error("[ARTIST] Button Background Error:", error);
-                        await editInteractionResponse(interaction.token, { 
-                            content: `❌ Could not load discography for ${artistName}.`
-                        });
-                    }
-                })());
 
-                return NextResponse.json({
-                    type: InteractionResponseType.DeferredMessageUpdate
-                });
-            }
-            //#endregion
 
             //#region Album Search
             if (customId === 'album_search_select') {
@@ -377,6 +353,52 @@ export async function POST(req: Request) {
                 return handleCountdownInteraction(buttonInteraction);
             }
             //#endregion
+        
+            //#region View Artist Button (From Album Embed)
+            if (customId.startsWith('view_artist:')) {
+                // Extract the numeric album ID from the custom ID
+                const albumId = parseInt(customId.split(':')[1], 10);
+                
+                waitUntil((async () => {
+                    try {
+                        // Retrieve the album to get the exact, un-truncated artist name
+                        const album = await getAlbumById(albumId);
+                        
+                        if (!album) {
+                            await editInteractionResponse(interaction.token, { 
+                                content: `❌ Could not find the original album to retrieve the artist.`
+                            });
+                            return;
+                        }
+
+                        const artistName = album.artistName as string;
+                        console.log(`[ARTIST] Loading discography for: ${artistName} (from album ID ${albumId})`);
+                        
+                        const result = await renderArtistEmbed(artistName);
+                        
+                        await editInteractionResponse(interaction.token, {
+                            content: "", 
+                            ...result.data
+                        });
+                    } catch (error) {
+                        console.error("[ARTIST] Button Background Error:", error);
+                        await editInteractionResponse(interaction.token, { 
+                            content: `❌ Could not load the discography.`
+                        });
+                    }
+                })());
+
+                return NextResponse.json({
+                    type: InteractionResponseType.UpdateMessage,
+                    data: {
+                        content: `⏳ Loading discography, please wait ...`,
+                        embeds: [],
+                        components: []
+                    }
+                });
+            }
+            //#endregion 
+
         }
         //#endregion
         

@@ -360,7 +360,7 @@ export async function renderAlbumEmbed(slug: string) {
                             // Encode the artist name into the custom_id (cap at 80 chars to stay under 100 limit)
                             custom_id: `view_artist:${album.artistName.substring(0, 80)}`,
                             label: `View ${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
-                            emoji: { name: '👨‍🎤' }
+                            emoji: { name: '🎭' }
                         }
                     ]
                 }

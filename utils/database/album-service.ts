@@ -38,6 +38,104 @@ export interface ArtistAlbumStat {
     ratingCount: number;
 }
 
+export interface UserRatingSearchResult {
+    name: string;
+    artistName: string;
+    slug: string;
+    releaseYear: string | null;
+    userScore: number;
+}
+
+//#region Search User Ratings
+
+/**
+ * Searches a specific user's rated albums using forgiving search filtering.
+ */
+export async function searchUserRatings(userId: string, query: string): Promise<UserRatingSearchResult[]> {
+    const cleanQuery = query.trim().replace(/\s+/g, ' ');
+    if (!cleanQuery) return[];
+    
+    const searchTerm = `%${cleanQuery}%`;
+    const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
+    const words = cleanQuery.split(' ').filter(w => w.length > 0);
+
+    const conditions: string[] =[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const args: any[] =[];
+
+    // The first 4 args apply to the SELECT statement's matchScore
+    args.push(searchTerm, searchTerm, looseQuery, searchTerm);
+    
+    // The 5th arg is the target Discord User ID for the WHERE clause
+    args.push(userId);
+
+    // Standard exact/loose matches (5 items)
+    conditions.push(
+        `a.name LIKE ?`,
+        `a.artistName LIKE ?`,
+        `a.slug LIKE ?`,
+        `a.artistName || ' ' || a.name LIKE ?`,
+        `a.name || ' ' || a.artistName LIKE ?`
+    );
+    args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
+
+    // Apply forgiving queries if the string is reasonably long
+    if (cleanQuery.length >= 3) {
+        const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
+        const forgivingQuery = `%${forgivingPattern}%`;
+        
+        conditions.push(
+            `a.name LIKE ?`,
+            `a.artistName LIKE ?`,
+            `a.slug LIKE ?`,
+            `a.artistName || ' ' || a.name LIKE ?`,
+            `a.name || ' ' || a.artistName LIKE ?`
+        );
+        args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
+    }
+
+    // Apply word splitting if the individual words are long enough
+    const meaningfulWords = words.filter(w => w.length >= 3);
+    if (meaningfulWords.length > 1) {
+        const wordConditions = meaningfulWords.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
+        conditions.push(`(${wordConditions.join(' AND ')})`);
+        for (const word of meaningfulWords) {
+            const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
+            args.push(w, w, w);
+        }
+    }
+
+    const sql = `
+        SELECT 
+            COALESCE(c.name, a.name) as name, 
+            COALESCE(c.artistName, a.artistName) as artistName, 
+            COALESCE(c.slug, a.slug) as slug, 
+            COALESCE(c.releaseYear, a.releaseYear) as releaseYear,
+            MAX(r.score) as userScore,
+            MAX(
+                CASE 
+                    WHEN a.name LIKE ? THEN 100
+                    WHEN a.artistName LIKE ? THEN 90
+                    WHEN a.artistName || ' ' || a.name LIKE ? THEN 80
+                    WHEN a.slug LIKE ? THEN 70
+                    ELSE 0
+                END
+            ) as matchScore
+        FROM ratings r
+        JOIN albums a ON r.albumId = a.slug
+        LEFT JOIN albums c ON a.canonicalId = c.id
+        WHERE r.userId = ? AND r.score > 0 AND (${conditions.join(' OR ')})
+        GROUP BY COALESCE(c.id, a.id)
+        ORDER BY matchScore DESC, userScore DESC, name ASC
+        LIMIT 25
+    `;
+
+    const result = await db.execute({ sql, args });
+    return result.rows as unknown as UserRatingSearchResult[];
+}
+
+//#endregion
+
 //#region Artists
 
 /**

@@ -442,6 +442,27 @@ const commands = [
   },
   //#endregion
 
+  //#region User Ratings Search
+  {
+    name: 'user-ratings',
+    description: '🔎 Search for a specific album among a user\'s ratings',
+    options:[
+      {
+        name: 'searchterm',
+        description: 'Try the exact or partial name of the artist or album.',
+        type: 3, // STRING
+        required: true,
+      },
+      {
+        name: 'user',
+        description: 'The user to search the ratings of (defaults to you).',
+        type: 6, // USER
+        required: false,
+      }
+    ]
+  },
+  //#endregion
+
   //#region Server Chart (TO BE REWORKED!)
   // {
   //   name: 'serverchart',

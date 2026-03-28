@@ -36,6 +36,7 @@ import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assig
 import { handleAlbumHighlight } from '@/app/commands/aotd';
 import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
 import { getAlbumById } from '@/utils/database/album-service';
+import { handleUserRatingsSearch } from '@/app/commands/user-ratings';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -88,6 +89,8 @@ export async function POST(req: Request) {
                 return handleAlbumSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'artist-search':
                 return handleArtistSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'user-ratings':
+                return handleUserRatingsSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-albums':
                 return handleTopAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'donor-albums':

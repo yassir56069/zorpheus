@@ -279,7 +279,7 @@ const sql = `
         ),
         ${genreCTE}
         -- MATERIALIZED forces SQLite to do this step only once and cache it in memory
-        CombinedRatings AS MATERIALIZED (
+        CombinedRatings AS (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
@@ -287,7 +287,7 @@ const sql = `
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS MATERIALIZED (
+        GlobalStats AS  (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
@@ -370,7 +370,7 @@ const sql = `
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
         ${genreCTE}
-        CombinedRatings AS MATERIALIZED (
+        CombinedRatings AS (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
@@ -378,7 +378,7 @@ const sql = `
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS MATERIALIZED (
+        GlobalStats AS  (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
@@ -605,7 +605,7 @@ CanonicalAlbums AS (
     WHERE r2.score > 0
     GROUP BY a.slug
 ),
-        CombinedRatings AS MATERIALIZED (
+        CombinedRatings AS (
             SELECT 
                 ca.canonical_slug as albumId,
                 r.userId,
@@ -615,7 +615,7 @@ CanonicalAlbums AS (
             WHERE r.score > 0
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS MATERIALIZED (
+        GlobalStats AS  (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
@@ -897,14 +897,14 @@ const sql = `
                 WHERE r2.score > 0
                 GROUP BY a.slug
             ),
-            CombinedRatings AS MATERIALIZED (
+            CombinedRatings AS (
                 SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
                 FROM ratings r
                 JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
                 WHERE r.score > 0
                 GROUP BY ca.canonical_slug, r.userId
             ),
-            GlobalStats AS MATERIALIZED (
+            GlobalStats AS (
                 SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
                 FROM CombinedRatings
             ),

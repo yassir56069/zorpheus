@@ -597,11 +597,14 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
 const sql = `
-        WITH CanonicalAlbums AS (
-            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
-            FROM albums a
-            LEFT JOIN albums c ON a.canonicalId = c.id
-        ),
+CanonicalAlbums AS (
+    SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+    FROM ratings r2
+    JOIN albums a ON r2.albumId = a.slug
+    LEFT JOIN albums c ON a.canonicalId = c.id
+    WHERE r2.score > 0
+    GROUP BY a.slug
+),
         CombinedRatings AS MATERIALIZED (
             SELECT 
                 ca.canonical_slug as albumId,
@@ -886,10 +889,13 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
     try {
 const sql = `
-            WITH CanonicalAlbums AS (
+            CanonicalAlbums AS (
                 SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
-                FROM albums a
+                FROM ratings r2
+                JOIN albums a ON r2.albumId = a.slug
                 LEFT JOIN albums c ON a.canonicalId = c.id
+                WHERE r2.score > 0
+                GROUP BY a.slug
             ),
             CombinedRatings AS MATERIALIZED (
                 SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score

@@ -597,7 +597,7 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
 const sql = `
-        CanonicalAlbums AS (
+        WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM ratings r2
             JOIN albums a ON r2.albumId = a.slug

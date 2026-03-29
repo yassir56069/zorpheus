@@ -279,7 +279,7 @@ const sql = `
         ),
         ${genreCTE}
         -- MATERIALIZED forces SQLite to do this step only once and cache it in memory
-        CombinedRatings AS (
+        CombinedRatings AS MATERIALIZED (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
             JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
@@ -319,7 +319,7 @@ const sql = `
     `;
 
     args.push(minRatings, limit, offset);
-
+    console.log("[DEBUG SQL]", sql);
     const result = await db.execute({ sql, args });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
@@ -378,7 +378,7 @@ const sql = `
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS  (
+        GlobalStats AS MATERIALIZED (
             SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
             FROM CombinedRatings
         ),
@@ -597,14 +597,14 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
 const sql = `
-CanonicalAlbums AS (
-    SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
-    FROM ratings r2
-    JOIN albums a ON r2.albumId = a.slug
-    LEFT JOIN albums c ON a.canonicalId = c.id
-    WHERE r2.score > 0
-    GROUP BY a.slug
-),
+        CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM ratings r2
+            JOIN albums a ON r2.albumId = a.slug
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            WHERE r2.score > 0
+            GROUP BY a.slug
+        ),
         CombinedRatings AS (
             SELECT 
                 ca.canonical_slug as albumId,
@@ -654,7 +654,7 @@ CanonicalAlbums AS (
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
-
+    console.log("[DEBUG SQL]", sql);
     const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     

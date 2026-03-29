@@ -897,14 +897,14 @@ const sql = `
                 WHERE r2.score > 0
                 GROUP BY a.slug
             ),
-            CombinedRatings AS (
+            CombinedRatings AS MATERIALIZED (
                 SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
                 FROM ratings r
                 JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
                 WHERE r.score > 0
                 GROUP BY ca.canonical_slug, r.userId
             ),
-            GlobalStats AS (
+            GlobalStats AS MATERIALIZED (
                 SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
                 FROM CombinedRatings
             ),
@@ -933,7 +933,7 @@ const sql = `
             SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
         `;
         const args = [MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
-
+        console.log("[DEBUG SQL]", sql);
         const result = await db.execute({ sql, args });
         
         if (result.rows.length === 0) {

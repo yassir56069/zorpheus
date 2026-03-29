@@ -889,7 +889,7 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
     try {
 const sql = `
-            CanonicalAlbums AS (
+            WITH CanonicalAlbums AS (
                 SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
                 FROM ratings r2
                 JOIN albums a ON r2.albumId = a.slug

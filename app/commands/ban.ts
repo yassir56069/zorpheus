@@ -7,7 +7,7 @@ import {
 
 const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
     '508817156847173632': (username: string) => `**${username}** has been permanently removed from poland`,  // sars
-    '975283884377903185': (username: string) => `**${username}** Banned for 1; Stoicism aura break 🗿`,  // sabo
+    '975283884377903185': (username: string) => `**${username}** Banned for 1 minute; Stoicism aura break 🗿`,  // sabo
     '689625367149019255': (username: string) => `**${username}** has been removed from all board game federations`, // witch
     '869190314408169524': (username: string) => `**${username}** REMOVED. BANNED. PERMANENT.`, // angel
     '471037538497331221': (username: string) => `ALL J-POP ARTISTS HAVE BEEN PERMANENTLY RELOCATED TO DELARE AND THEY ARE **NEVER** COMING BACK. **${username}** REMOVED. `, // birds

@@ -36,7 +36,7 @@ const BAN_REASONS = [
     (username: string) => `🧂 **${username}** has been banned after an independent audit found their takes to be excessively salty. Sodium levels: critical.`,
     (username: string) => `Every person in Poland wil be removed indefinitely`,
     (username: string) => `**${username}** has been banned for leaving voice messages instead of just texting like a normal person.`,
-    (username: string) => `**${username}** Every d `,
+    (username: string) => `**${username}** - https://tenor.com/view/bye-bye-bye-felicia-ok-bye-ok-gif-12286894223921059374`,
     (username: string) => `PINK FLOYD IS DEAD. BREAKING NEWS. BANNED.`,
 ];
 

@@ -14,6 +14,8 @@ const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
     '959791198938230784': (username: string) => `**${username}** : Albania >>> `,  // deks
     '237238938283147265': (username: string) => `CHARLIE KIRK HAS PASSED AWAY. WELCOME!`, // charlie kirk
     '674797171857686568': (username: string) => `**${username}** - Mana crypt rated this one a 2.5 `, // glasses
+    '336910418515722242': (username: string) => `**${username}** - Mana crypt rated this one a 5 `, // crypt
+    '715371036186509363': (username: string) => `**${username}** - removed because physics`, // Gabe
     '1137892277612711996': (username: string) => `**${username}** banned for existing #evil`, // kenops
     '373301028986290186': (username: string) => `**${username}** - all guitars are now left-handed. suck it. banned. `, // fungus
     '696806892793626664': (username: string) => `**${username}** - literally who watches the wiggles. permanently removed for 30 seconds.`, // wiggles

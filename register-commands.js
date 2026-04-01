@@ -10,7 +10,18 @@ if (!token || !applicationId) {
 }
 
 const commands = [
-
+  {
+      name: 'ban',
+      description: '🔨 Ban a user from the server (totally real, very serious)',
+      options: [
+          {
+              type: 6, // USER type
+              name: 'user',
+              description: 'The user to ban',
+              required: true,
+          },
+      ],
+  },
   //#region Admin: Canonize albums
   {
     "name": "canonize-album",

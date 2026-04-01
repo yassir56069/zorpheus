@@ -37,6 +37,7 @@ import { handleAlbumHighlight } from '@/app/commands/aotd';
 import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
 import { getAlbumById } from '@/utils/database/album-service';
 import { handleUserRatingsSearch } from '@/app/commands/user-ratings';
+import { handleBan } from '@/app/commands/ban';
 
 const BANNED_GUILD_ID = '1373961525890514964'; // heehee
 
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
         const { name } = interaction.data;
 
         switch (name) {
+            case 'ban':
+                return handleBan(interaction as APIChatInputApplicationCommandInteraction);
             case 'ping':
                 return handlePing(interaction as APIChatInputApplicationCommandInteraction);
             case 'rate':

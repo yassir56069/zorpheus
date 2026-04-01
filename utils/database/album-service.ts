@@ -319,7 +319,6 @@ const sql = `
     `;
 
     args.push(minRatings, limit, offset);
-    console.log("[DEBUG SQL]", sql);
     const result = await db.execute({ sql, args });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
@@ -654,7 +653,6 @@ const sql = `
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
-    console.log("[DEBUG SQL]", sql);
     const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     
@@ -933,7 +931,6 @@ const sql = `
             SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
         `;
         const args = [MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
-        console.log("[DEBUG SQL]", sql);
         const result = await db.execute({ sql, args });
         
         if (result.rows.length === 0) {

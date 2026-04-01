@@ -6,12 +6,12 @@ import {
 } from 'discord-api-types/v10';
 
 const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
-    '508817156847173632': (username: string) => `**${username}** has been permanently removed from poland`,  // sars
+    '508817156847173632': (username: string) => `**${username}** - pierogi pillows are now all being eaten cold and sloggy`,  // sars
     '975283884377903185': (username: string) => `**${username}** Banned for 1 minute; Stoicism aura break 🗿`,  // sabo
-    '689625367149019255': (username: string) => `**${username}** has been removed from all board game federations`, // witch
+    '689625367149019255': (username: string) => `**${username}** `, // witch
     '869190314408169524': (username: string) => `**${username}** REMOVED. BANNED. PERMANENT.`, // angel
     '471037538497331221': (username: string) => `ALL J-POP ARTISTS HAVE BEEN PERMANENTLY RELOCATED TO DELAWARE AND THEY ARE **NEVER** COMING BACK. **${username}** REMOVED. `, // birds
-    '959791198938230784': (username: string) => `**${username}** : https://tenor.com/view/daniel-dae-kim-mogged-mogger-looksmaxxing-ruggyscruggy-gif-1507416034755076487 `,  // deks
+    '959791198938230784': (username: string) => `**${username}** : Albania >>> `,  // deks
     '237238938283147265': (username: string) => `CHARLIE KIRK HAS PASSED AWAY. WELCOME!`, // charlie kirk
     '674797171857686568': (username: string) => `**${username}** - Mana crypt rated this one a 2.5 `, // glasses
     '1137892277612711996': (username: string) => `**${username}** banned for existing #evil`, // kenops

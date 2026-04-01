@@ -6,7 +6,7 @@ import {
 } from 'discord-api-types/v10';
 
 const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
-    '508817156847173632': (username: string) => `**${username}** - pierogi pillows are now all being eaten cold and sloggy`,  // sars
+    '508817156847173632': (username: string) => `**${username}** - zurek can now only be eaten if you send write less than 300 words in any given message`,  // sars
     '975283884377903185': (username: string) => `**${username}** Banned for 1 minute; Stoicism aura break 🗿`,  // sabo
     '689625367149019255': (username: string) => `**${username}** monopoly is now the only board game!`, // witch
     '869190314408169524': (username: string) => `**${username}** REMOVED. BANNED. PERMANENT.`, // angel
@@ -35,8 +35,8 @@ const BAN_REASONS = [
     (username: string) => `**${username}** banned for existing #evil`,
     (username: string) => `We are so happy to remove you, right now! **${username}** has been permanently executed! `,
     (username: string) => `To negate this ban please send me an email describing every beautiful thing about me, the wonderful owner. Kisses 💅💅 `,
-    (username: string) => `🧂 **${username}** has been banned after an independent audit found their takes to be excessively salty. Sodium levels: critical.`,
     (username: string) => `Every person in Poland wil be removed indefinitely`,
+    (username: string) => `Have a great day! *This user has been permanently banned for heunuous acts*`,
     (username: string) => `**${username}** has been banned for leaving voice messages instead of just texting like a normal person.`,
     (username: string) => `**${username}** - https://tenor.com/view/bye-bye-bye-felicia-ok-bye-ok-gif-12286894223921059374`,
     (username: string) => `PINK FLOYD IS DEAD. BREAKING NEWS. BANNED.`,

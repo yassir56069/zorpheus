@@ -8,7 +8,7 @@ import {
 const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
     '508817156847173632': (username: string) => `**${username}** - pierogi pillows are now all being eaten cold and sloggy`,  // sars
     '975283884377903185': (username: string) => `**${username}** Banned for 1 minute; Stoicism aura break 🗿`,  // sabo
-    '689625367149019255': (username: string) => `**${username}** `, // witch
+    '689625367149019255': (username: string) => `**${username}** monopoly is now the only board game!`, // witch
     '869190314408169524': (username: string) => `**${username}** REMOVED. BANNED. PERMANENT.`, // angel
     '471037538497331221': (username: string) => `ALL J-POP ARTISTS HAVE BEEN PERMANENTLY RELOCATED TO DELAWARE AND THEY ARE **NEVER** COMING BACK. **${username}** REMOVED. `, // birds
     '959791198938230784': (username: string) => `**${username}** : Albania >>> `,  // deks
@@ -18,7 +18,7 @@ const CUSTOM_BAN_MESSAGES: Record<string, (username: string) => string> = {
     '373301028986290186': (username: string) => `**${username}** - all guitars are now left-handed. suck it. banned. `, // fungus
     '696806892793626664': (username: string) => `**${username}** - literally who watches the wiggles. permanently removed for 30 seconds.`, // wiggles
     '530532463596929034': (username: string) => `**${username}** - richard dawson isn't even THAT good!!! go to bed !`, // stalemate
-    '306226778752417792': (username: string) => `**${username}** https://tenor.com/view/chiikawa-dance-happy-u-uwa-wa-uwa-gif-12488488499303603624`, // taco
+    '306226778752417792': (username: string) => `every **${username}** gif has been stolen. Now, banned! `, // taco
     // add more user IDs here
 };
 
@@ -30,13 +30,13 @@ const BAN_REASONS = [
     (username: string) => `📋 **${username}** has been banned for saying Perchance.`,
     (username: string) => `**${username}** has been banned for not praciticing Stoicism`,
     (username: string) => `Did you know? we have our own server charts and ratings! - **${username}** has been permanently banned!`,
-    (username: string) => `**POST ROCK** IS BANNED. MUSIC IS **BANNED**.`,
+    (username: string) => `**${username}** banned for existing #evil`,
     (username: string) => `We are so happy to remove you, right now! **${username}** has been permanently executed! `,
     (username: string) => `To negate this ban please send me an email describing every beautiful thing about me, the wonderful owner. Kisses 💅💅 `,
     (username: string) => `🧂 **${username}** has been banned after an independent audit found their takes to be excessively salty. Sodium levels: critical.`,
     (username: string) => `Every person in Poland wil be removed indefinitely`,
-    (username: string) => `📱 **${username}** has been banned for leaving voice messages instead of just texting like a normal person.`,
-    (username: string) => `🐛 **ZORPHEUS OWNER SUPREME** has been banned for pushing directly to main. On a Friday. Before a long weekend.`,
+    (username: string) => `**${username}** has been banned for leaving voice messages instead of just texting like a normal person.`,
+    (username: string) => `**${username}** Every d `,
     (username: string) => `PINK FLOYD IS DEAD. BREAKING NEWS. BANNED.`,
 ];
 

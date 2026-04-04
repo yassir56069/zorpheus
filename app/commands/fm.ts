@@ -546,44 +546,17 @@ export async function handleFmLove(interaction: APIMessageComponentButtonInterac
 
     if (!sessionKey) {
         // No session — send DM with auth link, respond ephemerally (no message edit needed)
-        const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
         const baseUrl = getBaseUrl();
         const callbackUrl = encodeURIComponent(
             `${baseUrl}/api/lastfm-callback?state=${actingUserId}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}`
         );
-        const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${callbackUrl}`;
+        const authUrl = `https://www.last.fm/api/auth/?api_key=${process.env.LASTFM_API_KEY}&cb=${callbackUrl}`;
 
-        const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN!;
-        try {
-            const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                },
-                body: JSON.stringify({ recipient_id: actingUserId }),
-            });
-            const dmChannel = await dmChannelRes.json();
-            if (dmChannel.id) {
-                await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                    },
-                    body: JSON.stringify({
-                        content: `💿 To love tracks on Last.fm, you need to connect your account once.\n\n**[Click here to authorize →](<${authUrl}>)**\n\nAfter authorizing, **${trackName}** by **${artist}** will be loved automatically and future 🖤 presses will work instantly.`,
-                    }),
-                });
-            }
-        } catch (err) {
-            console.error('[DM Error]', err);
-        }
 
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
             data: {
-                content: `🔐 Check your DMs! You need to connect your Last.fm account once to use this feature.`,
+                content: `🔐 To love tracks on Last.fm, you need to connect your account once.\n\n**[Click here to authorize →](<${authUrl}>)**\n\nAfter authorizing, **${trackName}** by **${artist}** will be loved automatically and future 🖤 presses will work instantly.`,
                 flags: 1 << 6,
             },
         });

@@ -17,7 +17,7 @@ import { handleRate } from '@/app/commands/rate';
 import { handleImport } from '@/app/commands/import';
 import { handleAlbum, handleAlbumSearch, renderAlbumEmbed, editInteractionResponse, handleCanonizeAlbum, handleCanonizeAlbumById } from '@/app/commands/album';
 import { handleCover, handleCoverButtonInteraction } from '@/app/commands/cover';
-import { handleFm, handleFmResync } from '@/app/commands/fm'; 
+import { handleFm, handleFmResync, handleFmLove } from '@/app/commands/fm';
 import { handleCountdown, handleCountdownInteraction  } from '@/app/commands/countdown';
 import { handleProfile, handleProfileButtonInteraction } from '@/app/commands/profile';
 import { handleChart, handleServerChart } from '@/app/commands/chart';
@@ -336,6 +336,12 @@ export async function POST(req: Request) {
         if (componentInteraction.data.component_type === ComponentType.Button) {
             const buttonInteraction = componentInteraction as APIMessageComponentButtonInteraction;
 
+            //#region Love FM
+            if (customId.startsWith('love_fm_')) {
+                return handleFmLove(buttonInteraction);
+            }
+            //#endregion
+
             //#region Profile Pagination
             if (customId.startsWith('profile_')) {
                 return handleProfileButtonInteraction(buttonInteraction);
@@ -347,6 +353,7 @@ export async function POST(req: Request) {
                 return handleFmResync(buttonInteraction);
             }
             //#endregion
+
 
             //#region Cover
             if (customId.startsWith('cov_')) {

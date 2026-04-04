@@ -8,14 +8,16 @@ import {
     ButtonStyle,
     APIApplicationCommandInteractionDataBooleanOption,
 } from 'discord-api-types/v10';
-import { getUserLastFM } from '@/utils/database/user-service';
+import { getUserLastFM, getUserLastFMSessionKey } from '@/utils/database/user-service';
 import { Vibrant } from 'node-vibrant/node';
 
 // --- NEW IMPORTS ---
 import { syncAlbumCover, generateSlug } from '@/utils/database/album-service';
 import { linkAlbumGenres } from '@/utils/database/genre-service';
+import { loveTrack } from '@/utils/lastfm-auth';
 
-// --- HELPER FUNCTION ---
+//#region Helper Functions
+
 function cleanArtistName(artist: string): string {
     console.log(`[Artist Filter] Executing. Original artist: "${artist}"`);
     const topicPattern = /\s-\sTopic\s*-?$/i;
@@ -128,6 +130,21 @@ const getBaseUrl = () => {
     }
     return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:2999';
 };
+
+
+// Lastfm LOVE
+// custom_id max is 100 chars. Prefix "love_fm_" = 8, userId max = 20, separator = 1 -> 71 chars left for artist||track
+function encodeLoveId(userId: string, artist: string, track: string): string {
+    const prefix = `love_fm_${userId}_`;
+    const maxPayload = 99 - prefix.length; // leave 1 char buffer
+    let payload = `${artist}||${track}`;
+    if (payload.length > maxPayload) {
+        payload = payload.substring(0, maxPayload);
+    }
+    return `${prefix}${payload}`;
+}
+
+//#endregion
 
 // --- MAIN COMMAND HANDLER ---
 
@@ -279,16 +296,24 @@ export async function handleFm(interaction: APIChatInputApplicationCommandIntera
             footer: { text: footerText, icon_url: iconUrl },
         };
 
+        const loveCustomId = encodeLoveId(interaction.member!.user.id, artist, trackName);
         const components = [{
             type: 1,
-            components:[{
-                type: 2,
-                style: ButtonStyle.Secondary,
-                label: 'Re-sync',
-                custom_id: `resync_fm_${interaction.member!.user.id}`,
-            }],
+            components: [
+                {
+                    type: 2,
+                    style: ButtonStyle.Secondary,
+                    label: 'Re-sync',
+                    custom_id: `resync_fm_${interaction.member!.user.id}`,
+                },
+                {
+                    type: 2,
+                    style: ButtonStyle.Secondary,
+                    label: '🖤',
+                    custom_id: loveCustomId,
+                },
+            ],
         }];
-
         await fetch(webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -456,12 +481,32 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
             color: dominantColor || 0xd51007,
             thumbnail: { url: albumArtUrl },
             footer: { text: footerText, icon_url: iconUrl },
-        };
+                };
 
+        const loveCustomId = encodeLoveId(discordUserId, artist, trackName);
         await fetch(webhookUrl, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds: [embed] }),
+            body: JSON.stringify({
+                embeds: [embed],
+                components: [{
+                    type: 1,
+                    components: [
+                        {
+                            type: 2,
+                            style: ButtonStyle.Secondary,
+                            label: 'Re-sync',
+                            custom_id: `resync_fm_${discordUserId}`,
+                        },
+                        {
+                            type: 2,
+                            style: ButtonStyle.Secondary,
+                            label: '🖤',
+                            custom_id: loveCustomId,
+                        },
+                    ],
+                }],
+            }),
         });
 
     } catch (error) {
@@ -474,3 +519,102 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
     }
     return new NextResponse(null, { status: 204 });
 }
+
+//#region Love Button Handler
+
+export async function handleFmLove(interaction: APIMessageComponentButtonInteraction) {
+    const customId = interaction.data.custom_id; // love_fm_{userId}_{artist}||{track}
+    const actingUserId = interaction.member?.user.id || interaction.user?.id;
+
+    // Parse out the original user and payload
+    // Format: love_fm_<userId>_<artist>||<track>
+    const withoutPrefix = customId.replace('love_fm_', '');
+    const underscoreIdx = withoutPrefix.indexOf('_');
+    const originalUserId = withoutPrefix.substring(0, underscoreIdx);
+    const payload = withoutPrefix.substring(underscoreIdx + 1);
+
+    // Only the original user can press this
+    if (actingUserId !== originalUserId) {
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: { content: "This button isn't for you!", flags: 1 << 6 },
+        });
+    }
+
+    const separatorIdx = payload.indexOf('||');
+    const artist = separatorIdx !== -1 ? payload.substring(0, separatorIdx) : payload;
+    const trackName = separatorIdx !== -1 ? payload.substring(separatorIdx + 2) : '';
+
+    // Check if user already has a session key
+    const sessionKey = await getUserLastFMSessionKey(actingUserId);
+
+    if (sessionKey) {
+        // Great — love the track directly, then confirm ephemerally
+        try {
+            await loveTrack(artist, trackName, sessionKey);
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: {
+                    content: `❤️ Loved **${trackName}** by **${artist}** on Last.fm!`,
+                    flags: 1 << 6, // ephemeral
+                },
+            });
+        } catch (err) {
+            console.error('[Love Track Error]', err);
+            return NextResponse.json({
+                type: InteractionResponseType.ChannelMessageWithSource,
+                data: {
+                    content: `❌ Failed to love the track on Last.fm. Your session may have expired — press 🖤 again to re-authenticate.`,
+                    flags: 1 << 6,
+                },
+            });
+        }
+    }
+
+    // No session key — build an OAuth URL and DM it to the user
+    const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
+    const baseUrl = getBaseUrl();
+    const callbackUrl = encodeURIComponent(
+        `${baseUrl}/api/lastfm-callback?state=${actingUserId}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}`
+    );
+    const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${callbackUrl}`;
+
+    // DM the user the auth link
+    const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN!;
+    try {
+        const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+            },
+            body: JSON.stringify({ recipient_id: actingUserId }),
+        });
+        const dmChannel = await dmChannelRes.json();
+
+        if (dmChannel.id) {
+            await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+                },
+                body: JSON.stringify({
+                    content: `💿 To love tracks on Last.fm, you need to connect your account once.\n\n**[Click here to authorize →](<${authUrl}>)**\n\nAfter authorizing, **${trackName}** by **${artist}** will be loved automatically and future 🖤 presses will work instantly.`,
+                }),
+            });
+        }
+    } catch (err) {
+        console.error('[DM Error]', err);
+    }
+
+    return NextResponse.json({
+        type: InteractionResponseType.ChannelMessageWithSource,
+        data: {
+            content: `🔐 Check your DMs! You need to connect your Last.fm account once to use this feature.`,
+            flags: 1 << 6,
+        },
+    });
+}
+
+//#endregion

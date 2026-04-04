@@ -61,7 +61,6 @@ export async function getUserDisplayName(discordUserId: string): Promise<string 
     }
 }
 
-
 export async function getAllLastFMUsers(): Promise<string[]> {
     try {
         const result = await db.execute({
@@ -75,3 +74,30 @@ export async function getAllLastFMUsers(): Promise<string[]> {
         return [];
     }
 }
+
+//#region Last.fm Love
+export async function getUserLastFMSessionKey(discordUserId: string): Promise<string | null> {
+    try {
+        const result = await db.execute({
+            sql: 'SELECT lastfmSessionKey FROM users WHERE userDiscordId = ?',
+            args: [discordUserId]
+        });
+        if (result.rows.length === 0) return null;
+        return (result.rows[0].lastfmSessionKey as string | null) || null;
+    } catch (error) {
+        console.error(`[DB Error] Fetching Last.fm session key for ${discordUserId}:`, error);
+        return null;
+    }
+}
+
+export async function saveLastFMSessionKey(discordUserId: string, sessionKey: string): Promise<void> {
+    try {
+        await db.execute({
+            sql: 'UPDATE users SET lastfmSessionKey = ?, modifiedAt = CURRENT_TIMESTAMP WHERE userDiscordId = ?',
+            args: [sessionKey, discordUserId]
+        });
+    } catch (error) {
+        console.error(`[DB Error] Saving Last.fm session key for ${discordUserId}:`, error);
+    }
+}
+//#endregion

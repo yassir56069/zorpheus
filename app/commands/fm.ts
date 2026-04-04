@@ -523,17 +523,14 @@ export async function handleFmResync(interaction: APIMessageComponentButtonInter
 //#region Love Button Handler
 
 export async function handleFmLove(interaction: APIMessageComponentButtonInteraction) {
-    const customId = interaction.data.custom_id; // love_fm_{userId}_{artist}||{track}
+    const customId = interaction.data.custom_id;
     const actingUserId = interaction.member?.user.id || interaction.user?.id;
 
-    // Parse out the original user and payload
-    // Format: love_fm_<userId>_<artist>||<track>
     const withoutPrefix = customId.replace('love_fm_', '');
     const underscoreIdx = withoutPrefix.indexOf('_');
     const originalUserId = withoutPrefix.substring(0, underscoreIdx);
     const payload = withoutPrefix.substring(underscoreIdx + 1);
 
-    // Only the original user can press this
     if (actingUserId !== originalUserId) {
         return NextResponse.json({
             type: InteractionResponseType.ChannelMessageWithSource,
@@ -545,76 +542,104 @@ export async function handleFmLove(interaction: APIMessageComponentButtonInterac
     const artist = separatorIdx !== -1 ? payload.substring(0, separatorIdx) : payload;
     const trackName = separatorIdx !== -1 ? payload.substring(separatorIdx + 2) : '';
 
-    // Check if user already has a session key
     const sessionKey = await getUserLastFMSessionKey(actingUserId);
 
-    if (sessionKey) {
-        // Great — love the track directly, then confirm ephemerally
+    if (!sessionKey) {
+        // No session — send DM with auth link, respond ephemerally (no message edit needed)
+        const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
+        const baseUrl = getBaseUrl();
+        const callbackUrl = encodeURIComponent(
+            `${baseUrl}/api/lastfm-callback?state=${actingUserId}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}`
+        );
+        const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${callbackUrl}`;
+
+        const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN!;
         try {
-            await loveTrack(artist, trackName, sessionKey);
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: {
-                    content: `❤️ Loved **${trackName}** by **${artist}** on Last.fm!`,
-                    flags: 1 << 6, // ephemeral
-                },
-            });
-        } catch (err) {
-            console.error('[Love Track Error]', err);
-            return NextResponse.json({
-                type: InteractionResponseType.ChannelMessageWithSource,
-                data: {
-                    content: `❌ Failed to love the track on Last.fm. Your session may have expired — press 🖤 again to re-authenticate.`,
-                    flags: 1 << 6,
-                },
-            });
-        }
-    }
-
-    // No session key — build an OAuth URL and DM it to the user
-    const LASTFM_API_KEY = process.env.LASTFM_API_KEY!;
-    const baseUrl = getBaseUrl();
-    const callbackUrl = encodeURIComponent(
-        `${baseUrl}/api/lastfm-callback?state=${actingUserId}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}`
-    );
-    const authUrl = `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&cb=${callbackUrl}`;
-
-    // DM the user the auth link
-    const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN!;
-    try {
-        const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-            },
-            body: JSON.stringify({ recipient_id: actingUserId }),
-        });
-        const dmChannel = await dmChannelRes.json();
-
-        if (dmChannel.id) {
-            await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+            const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
                 },
-                body: JSON.stringify({
-                    content: `💿 To love tracks on Last.fm, you need to connect your account once.\n\n**[Click here to authorize →](<${authUrl}>)**\n\nAfter authorizing, **${trackName}** by **${artist}** will be loved automatically and future 🖤 presses will work instantly.`,
-                }),
+                body: JSON.stringify({ recipient_id: actingUserId }),
             });
+            const dmChannel = await dmChannelRes.json();
+            if (dmChannel.id) {
+                await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+                    },
+                    body: JSON.stringify({
+                        content: `💿 To love tracks on Last.fm, you need to connect your account once.\n\n**[Click here to authorize →](<${authUrl}>)**\n\nAfter authorizing, **${trackName}** by **${artist}** will be loved automatically and future 🖤 presses will work instantly.`,
+                    }),
+                });
+            }
+        } catch (err) {
+            console.error('[DM Error]', err);
         }
-    } catch (err) {
-        console.error('[DM Error]', err);
+
+        return NextResponse.json({
+            type: InteractionResponseType.ChannelMessageWithSource,
+            data: {
+                content: `🔐 Check your DMs! You need to connect your Last.fm account once to use this feature.`,
+                flags: 1 << 6,
+            },
+        });
     }
 
-    return NextResponse.json({
-        type: InteractionResponseType.ChannelMessageWithSource,
-        data: {
-            content: `🔐 Check your DMs! You need to connect your Last.fm account once to use this feature.`,
-            flags: 1 << 6,
-        },
+    // We have a session key — defer the message update so we can edit the original
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: InteractionResponseType.DeferredMessageUpdate }),
     });
+
+    const webhookUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
+
+    try {
+        await loveTrack(artist, trackName, sessionKey);
+
+        // Rebuild the components from the original message, swapping 🖤 → ❤️
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const originalComponents = (interaction.message.components ?? []) as any[];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const updatedComponents = originalComponents.map((row: any) => ({
+    ...row,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    components: row.components.map((component: any) => {
+        if ('custom_id' in component && component.custom_id === customId) {
+            return { ...component, label: '❤️' };
+        }
+        return component;
+    }),
+}));
+
+        await fetch(webhookUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ components: updatedComponents }),
+        });
+
+    } catch (err) {
+        console.error('[Love Track Error]', err);
+        // Send a followup ephemeral error — we can't edit the original with an error here
+        // since DeferredMessageUpdate already committed us to editing the original message
+        await fetch(
+            `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: `❌ Failed to love the track. Your session may have expired — press 🖤 again to re-authenticate.`,
+                    flags: 1 << 6,
+                }),
+            }
+        );
+    }
+
+    return new NextResponse(null, { status: 204 });
 }
 
 //#endregion

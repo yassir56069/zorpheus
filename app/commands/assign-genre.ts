@@ -31,7 +31,6 @@ export async function handleAssignGenre(
     console.log("[GENRE] Received /assign-genre command");
     const options = interaction.data.options ??[];
     
-    // Note: Ensure your slash command option in Discord is named 'album-id'
     const albumIdOption = options.find(opt => opt.name === 'album-id') as APIApplicationCommandInteractionDataStringOption | undefined;
     
     const discordUserId = interaction.member?.user?.id || interaction.user?.id;
@@ -42,7 +41,6 @@ export async function handleAssignGenre(
             let targetAlbumName = "";
             let targetAlbumArtist = "";
 
-            // If no ID is provided, attempt to fetch the user's current Last.fm track
             if (!targetAlbumId || isNaN(targetAlbumId)) {
                 const lastfmUsername = await getUserLastFM(discordUserId as string) as string | null;
                 
@@ -92,7 +90,6 @@ export async function handleAssignGenre(
                 targetAlbumName = albumRecord.name as string;
                 targetAlbumArtist = albumRecord.artistName as string;
             } else {
-                // Fetch existing album directly by ID
                 const albumRecord = await getAlbumById(targetAlbumId);
                 
                 if (!albumRecord) {
@@ -105,10 +102,9 @@ export async function handleAssignGenre(
                 targetAlbumArtist = albumRecord.artistName as string;
             }
 
-            // Split VALID_GENRES into two menus to bypass Discord's 25-item dropdown limit
+            // Split VALID_GENRES into menus to bypass Discord's 25-item dropdown limit
             const sortedGenres = [...VALID_GENRES].sort();
             
-            // Pass the album ID back in the `value` payload so the Select event remembers the album context
             const firstHalf = sortedGenres.slice(0, 25).map(g => ({
                 label: titleCase(g),
                 value: `${targetAlbumId}::${g}` 
@@ -119,7 +115,10 @@ export async function handleAssignGenre(
                 value: `${targetAlbumId}::${g}`
             }));
 
-            // Build the components array
+            // Dynamically calculate the alphabet span for Placeholders
+            const firstStartLetter = firstHalf[0].label.charAt(0).toUpperCase();
+            const firstEndLetter = firstHalf[firstHalf.length - 1].label.charAt(0).toUpperCase();
+
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const components: any[] =[
                 {
@@ -127,7 +126,7 @@ export async function handleAssignGenre(
                     components:[{
                         type: ComponentType.StringSelect,
                         custom_id: `assign_genre_select_1`,
-                        placeholder: "Select a genre (A-R)",
+                        placeholder: `Select a genre (${firstStartLetter}-${firstEndLetter})`,
                         options: firstHalf
                     }]
                 }
@@ -135,12 +134,15 @@ export async function handleAssignGenre(
 
             // Add the second dropdown if we have more than 25 genres
             if (secondHalf.length > 0) {
+                const secondStartLetter = secondHalf[0].label.charAt(0).toUpperCase();
+                const secondEndLetter = secondHalf[secondHalf.length - 1].label.charAt(0).toUpperCase();
+
                 components.push({
                     type: ComponentType.ActionRow,
                     components:[{
                         type: ComponentType.StringSelect,
                         custom_id: `assign_genre_select_2`,
-                        placeholder: "Select a genre (R-Z)",
+                        placeholder: `Select a genre (${secondStartLetter}-${secondEndLetter})`,
                         options: secondHalf
                     }]
                 });
@@ -165,11 +167,10 @@ export async function handleAssignGenre(
 
 /**
  * Handles the interaction when a user clicks an option in the Assign Genre dropdown.
- * Route any custom_ids starting with `assign_genre_select_` to this function in your main API route.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function handleAssignGenreSelect(interaction: any, waitUntil: (promise: Promise<any>) => void) {
-    const selectedValue = interaction.data.values[0]; // Resolves to e.g. "1234::experimental"
+    const selectedValue = interaction.data.values[0]; 
     const [albumIdStr, genre] = selectedValue.split('::');
     const discordUserId = interaction.member?.user?.id || interaction.user?.id;
 
@@ -198,6 +199,5 @@ export async function handleAssignGenreSelect(interaction: any, waitUntil: (prom
     };
 
     waitUntil(runBackgroundTask());
-    // Use DeferredMessageUpdate instead of DeferredChannelMessageWithSource for components!
     return NextResponse.json({ type: InteractionResponseType.DeferredMessageUpdate });
 }

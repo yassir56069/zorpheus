@@ -5,7 +5,8 @@ export const VALID_GENRES =[
     "folk", "regional", "emo", "country", "blues", "funk", "soul", "jazz", "classical",
     "hip hop", "electronic", "rock", "pop", "vaporwave", "j-pop", "neo-psychedelia",
     "slowcore", "reggae", "punk", "post-punk", "progressive rock", "art rock", "shoegaze",
-    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter", "ambient", "drone", "alternative country"
+    "post-rock", "alternative rock", "indie rock", "metal", "experimental", "singer-songwriter", 
+    "ambient", "drone", "alternative country", "new wave", "post-hardcore" // <-- ADDED NEW GENRES
 ];
 
 //#region Get Genres
@@ -48,7 +49,7 @@ export async function getMergedAlbumGenres(slug: string): Promise<string[]> {
 
 //#endregion
 
-//#region  Add Genres
+//#region Add Genres
 
 /**
  * Manually links a genre to an album based on an album's integer ID.
@@ -108,7 +109,7 @@ export async function addManualAlbumGenre(albumId: number, genreName: string, us
 //#endregion
 
 /**
- * Maps messy Last.fm tags to our strict 29-genre taxonomy.
+ * Maps messy Last.fm tags to our strict taxonomy.
  * Returns null if the tag doesn't fit into our taxonomy.
  */
 export function mapLastFmTagToGenre(tag: string): string | null {
@@ -122,8 +123,8 @@ export function mapLastFmTagToGenre(tag: string): string | null {
         "trap": "hip hop",
         "synth pop": "neo-psychedelia",
         "synthpop": "neo-psychedelia",
-        "post-hardcore": "post-punk",
-        "post hardcore": "post-punk",
+        // "post-hardcore" is naturally handled by VALID_GENRES now, but we'll map the un-hyphenated version here
+        "post hardcore": "post-hardcore", 
         "hip-hop": "hip hop",
         "hiphop": "hip hop",
         "rap": "hip hop",
@@ -148,6 +149,7 @@ export function mapLastFmTagToGenre(tag: string): string | null {
     
     // Sub-rocks & Punks
     if (t.includes("post-rock")) return "post-rock";
+    if (t.includes("post-hardcore")) return "post-hardcore"; // <-- ADDED
     if (t.includes("post-punk")) return "post-punk";
     if (t.includes("progressive rock") || t.includes("prog")) return "progressive rock";
     if (t.includes("art rock")) return "art rock";
@@ -158,7 +160,8 @@ export function mapLastFmTagToGenre(tag: string): string | null {
     if (t.includes("punk")) return "punk"; 
     
     // Broad catch-alls
-    if (t.includes("metal")) return "metal"; // Catches "sludge metal", "black metal"
+    if (t.includes("metal")) return "metal"; 
+    if (t.includes("new wave")) return "new wave"; // <-- ADDED
     if (t.includes("folk")) return "folk";
     if (t.includes("emo")) return "emo";
     if (t.includes("jazz")) return "jazz";
@@ -168,11 +171,11 @@ export function mapLastFmTagToGenre(tag: string): string | null {
     
     if (t.includes("pop")) {
         if (t.includes("j-pop") || t.includes("jpop")) return "j-pop";
-        if (t.includes("synth") || t.includes("dream")) return "neo-psychedelia"; // user rule for synth pop
+        if (t.includes("synth") || t.includes("dream")) return "neo-psychedelia"; 
         return "pop";
     }
     
-    if (t.includes("rock")) return "rock"; // Catch-all for "glam-rock", "hard rock", etc.
+    if (t.includes("rock")) return "rock"; 
     
     if (t.includes("ambient")) return "ambient";
     if (t.includes("drone")) return "drone";
@@ -225,7 +228,6 @@ export async function linkAlbumGenres(albumSlug: string, lastfmTags: string[], u
             }
 
             // Link to album (source 1 = Last.fm, weight 1 = primary)
-            // DO NOTHING on conflict prevents duplicates per album
             await db.execute({
                 sql: `
                     INSERT INTO album_genres (albumId, genreId, weight, fromUser, source)
@@ -238,8 +240,4 @@ export async function linkAlbumGenres(albumSlug: string, lastfmTags: string[], u
             console.error(`[DB Error] Failed to link genre ${genreName} to album ${albumSlug}:`, error);
         }
     }
-
-
-
 }
-

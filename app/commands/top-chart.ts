@@ -79,7 +79,7 @@ export async function handleUnratedTopChart(
             const pageText = page > 1 ? ` - Page ${page}` : '';
             
             formData.append('payload_json', JSON.stringify({ 
-                content: `### 🎧 ${timePeriodTitle}${pageText}\n*(Highly rated server albums you haven't reviewed yet!)*` 
+                content: `### ${timePeriodTitle}${pageText}\n-# *Highly rated server albums you haven't rated yet!*` 
             }));
 
             await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {

@@ -469,7 +469,7 @@ const commands = [
 
     //#region Rated Chart
   {
-    "name": "unrated-chart",
+    "name": "top-unrated",
     "description": "Generates a grid of the highest rated albums in the server that you haven't rated!",
     "options": [
       {

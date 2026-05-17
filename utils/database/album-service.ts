@@ -28,7 +28,6 @@ export interface UserRating {
     updatedAt: string;
 }
 
-
 export interface ArtistAlbumStat {
     name: string;
     slug: string;
@@ -45,6 +44,49 @@ export interface UserRatingSearchResult {
     releaseYear: string | null;
     userScore: number;
 }
+
+//#region Global Stats
+
+/**
+ * Retrieves the cached global average rating, updating it if it's older than 1 hour.
+ * Drastically reduces database reads across all ranking commands.
+ */
+async function getGlobalAverage(): Promise<number> {
+    try {
+        const cacheRes = await db.execute({
+            sql: `SELECT value, updatedAt FROM system_stats WHERE key = 'global_rating_avg' LIMIT 1`,
+            args: []
+        });
+
+        const now = new Date();
+        const cache = cacheRes.rows[0];
+        
+        // If no cache exists OR cache is older than 1 hour, trigger a refresh
+        if (!cache || (now.getTime() - new Date(cache.updatedAt as string).getTime() > 3600000)) {
+            const refreshRes = await db.execute({
+                sql: `SELECT AVG(score) as newAvg FROM ratings WHERE score > 0`,
+                args: []
+            });
+            
+            const newAvg = (refreshRes.rows[0]?.newAvg as number) || 7.0;
+
+            await db.execute({
+                sql: `INSERT INTO system_stats (key, value, updatedAt) 
+                      VALUES ('global_rating_avg', ?, CURRENT_TIMESTAMP)
+                      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
+                args: [newAvg]
+            });
+            return newAvg;
+        }
+
+        return cache.value as number;
+    } catch (e) {
+        console.error("Error fetching global average:", e);
+        return 7.0; // Safe fallback
+    }
+}
+
+//#endregion
 
 //#region Search User Ratings
 
@@ -147,8 +189,6 @@ export async function searchArtists(query: string) {
     
     const searchTerm = `%${cleanQuery}%`;
 
-    // Grouping by LOWER(artistName) but returning the MAX original case for visual accuracy.
-    // canonicalId IS NULL prevents duplicate counts for original/canonical variants.
     const sql = `
         SELECT 
             MAX(a.artistName) as artistName,
@@ -168,6 +208,8 @@ export async function searchArtists(query: string) {
  * Retrieves an artist's discography and calculates local Bayesian scores
  */
 export async function getArtistAlbums(artistName: string): Promise<ArtistAlbumStat[]> {
+    const globalAvg = await getGlobalAverage();
+
     const sql = `
         WITH TargetCanonicalSlugs AS (
             SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug,
@@ -196,19 +238,14 @@ export async function getArtistAlbums(artistName: string): Promise<ArtistAlbumSt
             WHERE r.score > 0
             GROUP BY tos.canonical_slug, r.userId
         ),
-        GlobalStats AS (
-            -- Fast single-read approximation of global stats
-            SELECT COALESCE(AVG(score), 0) as globalAvg FROM ratings WHERE score > 0
-        ),
         AlbumSums AS (
             SELECT 
                 ar.albumId,
                 COUNT(ar.userId) as ratingCount,
                 AVG(ar.score) as avgScore,
-                (SUM(ar.score) + (${MIN_RATINGS_TO_RANK} * g.globalAvg)) / (COUNT(ar.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
+                (SUM(ar.score) + (${MIN_RATINGS_TO_RANK} * ?)) / (COUNT(ar.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
             FROM ArtistRatings ar
-            CROSS JOIN GlobalStats g
-            GROUP BY ar.albumId, g.globalAvg
+            GROUP BY ar.albumId
         )
         SELECT 
             tcs.name,
@@ -225,7 +262,7 @@ export async function getArtistAlbums(artistName: string): Promise<ArtistAlbumSt
             tcs.name ASC
     `;
 
-    const result = await db.execute({ sql, args: [artistName] });
+    const result = await db.execute({ sql, args: [artistName, globalAvg] });
     return result.rows as unknown as ArtistAlbumStat[];
 }
 
@@ -243,18 +280,19 @@ export async function getTopAlbums(options: {
 }) {
     const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
+    
+    // Fetch cached global average once per request
+    const globalAvg = await getGlobalAverage(); 
 
     const dateFilter = days 
         ? `AND r.createdAt >= datetime('now', '-${days} days')` 
         : '';
 
-    // Automatically drop the required ratings to 3 for genre-specific charts
     const minRatings = genre ? 3 : MIN_RATINGS_TO_RANK;
 
     let genreCTE = '';
     let genreJoin = '';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const args: any[] =[];
+    const args: any[] = [];
 
     if (genre) {
         genreCTE = `
@@ -271,14 +309,13 @@ export async function getTopAlbums(options: {
         args.push(genre.toLowerCase());
     }
 
-const sql = `
+    const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
         ),
         ${genreCTE}
-        -- MATERIALIZED forces SQLite to do this step only once and cache it in memory
         CombinedRatings AS MATERIALIZED (
             SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
             FROM ratings r
@@ -287,21 +324,15 @@ const sql = `
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS  (
-            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
-            FROM CombinedRatings
-        ),
         AlbumSums AS (
             SELECT 
                 c.albumId, 
                 SUM(c.score) as sumScore, 
                 COUNT(c.userId) as ratingCount,
                 (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                -- We get globalAvg from the CROSS JOIN below instead of a subquery
-                (SUM(c.score) + (${minRatings} * g.globalAvg)) / (COUNT(c.userId) + ${minRatings}) as weightedScore
+                (SUM(c.score) + (${minRatings} * ?)) / (COUNT(c.userId) + ${minRatings}) as weightedScore
             FROM CombinedRatings c
-            CROSS JOIN GlobalStats g
-            GROUP BY c.albumId, g.globalAvg
+            GROUP BY c.albumId
         )
         SELECT 
             a.name, 
@@ -318,9 +349,8 @@ const sql = `
         LIMIT ? OFFSET ?
     `;
 
-    args.push(minRatings, limit, offset);
+    args.push(globalAvg, minRatings, limit, offset);
     const result = await db.execute({ sql, args });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }
 
@@ -335,6 +365,8 @@ export async function getDonorAlbums(options: {
 }) {
     const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
+    
+    const globalAvg = await getGlobalAverage();
 
     const dateFilter = days 
         ? `AND r.createdAt >= datetime('now', '-${days} days')` 
@@ -344,7 +376,6 @@ export async function getDonorAlbums(options: {
 
     let genreCTE = '';
     let genreJoin = '';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args: any[] =[];
 
     if (genre) {
@@ -362,7 +393,7 @@ export async function getDonorAlbums(options: {
         args.push(genre.toLowerCase());
     }
 
-const sql = `
+    const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
@@ -377,20 +408,15 @@ const sql = `
             WHERE r.score > 0 ${dateFilter}
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS MATERIALIZED (
-            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
-            FROM CombinedRatings
-        ),
         AlbumSums AS (
             SELECT 
                 c.albumId, 
                 SUM(c.score) as sumScore, 
                 COUNT(c.userId) as ratingCount,
                 (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                (SUM(c.score) + (${minRatingsTarget} * g.globalAvg)) / (COUNT(c.userId) + ${minRatingsTarget}) as weightedScore
+                (SUM(c.score) + (${minRatingsTarget} * ?)) / (COUNT(c.userId) + ${minRatingsTarget}) as weightedScore
             FROM CombinedRatings c
-            CROSS JOIN GlobalStats g
-            GROUP BY c.albumId, g.globalAvg
+            GROUP BY c.albumId
         )
         SELECT 
             a.name, 
@@ -407,10 +433,9 @@ const sql = `
         LIMIT ? OFFSET ?
     `;
 
-    args.push(minRatingsTarget, limit, offset);
+    args.push(globalAvg, minRatingsTarget, limit, offset);
 
     const result = await db.execute({ sql, args });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any;
 }
 
@@ -426,7 +451,6 @@ export async function getOrCreateAlbum(albumData: {
     const baseSlug = generateSlug(albumData.artistName, albumData.name, null);
     
     try {
-        // 1. Check if this exact slug already exists
         const existing = await db.execute({
             sql: `SELECT * FROM albums WHERE slug = ?`,
             args: [slug]
@@ -435,7 +459,6 @@ export async function getOrCreateAlbum(albumData: {
         if (existing.rows.length > 0) {
             const album = existing.rows[0];
             
-            // If this entry points to a canonical ID, RETURN the canonical album instead
             if (album.canonicalId) {
                 const canonical = await db.execute({
                     sql: `SELECT * FROM albums WHERE id = ?`,
@@ -444,9 +467,7 @@ export async function getOrCreateAlbum(albumData: {
                 if (canonical.rows.length > 0) return canonical.rows[0];
             }
 
-            // --- SELF-HEALING LOGIC FOR EXISTING RECORDS ---
             if (!album.releaseYear) {
-                // Case A: The existing album lacks a year. Check if a canonical version (with a year) exists.
                 const canonicalMatch = await db.execute({
                     sql: `
                         SELECT id, slug FROM albums 
@@ -463,13 +484,11 @@ export async function getOrCreateAlbum(albumData: {
                 if (canonicalMatch.rows.length > 0) {
                     const newCanonicalId = canonicalMatch.rows[0].id as number;
                     
-                    // Link this yearless album to the canonical one
                     await db.execute({
                         sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
                         args: [newCanonicalId, album.id]
                     });
                     
-                    // Return the canonical one so the user's rating attaches to the right slug
                     const canonical = await db.execute({
                         sql: `SELECT * FROM albums WHERE id = ?`,
                         args: [newCanonicalId]
@@ -477,8 +496,6 @@ export async function getOrCreateAlbum(albumData: {
                     if (canonical.rows.length > 0) return canonical.rows[0];
                 }
             } else {
-                // Case B: The existing album HAS a release year. 
-                // Ensure any missing-year baseSlug points to it.
                 await db.execute({
                     sql: `
                         UPDATE albums 
@@ -492,7 +509,6 @@ export async function getOrCreateAlbum(albumData: {
             return album;
         }
 
-        // 2. If no exact match exists AND year is missing, try to find a canonical match beforehand
         let canonicalId: number | null = null;
         let canonicalSlug: string | null = null;
 
@@ -515,7 +531,6 @@ export async function getOrCreateAlbum(albumData: {
             }
         }
 
-        // 3. Insert the new album record
         const result = await db.execute({
             sql: `
                 INSERT INTO albums (mbid, name, artistName, slug, releaseYear, fromUser, canonicalId, createdAt)
@@ -538,8 +553,6 @@ export async function getOrCreateAlbum(albumData: {
 
         const savedAlbum = result.rows[0];
 
-        // 4. Backwards healing: If we just inserted a new album WITH a releaseYear, 
-        // ensure any existing yearless base slug is caught and linked to it.
         if (savedAlbum.releaseYear && !canonicalId) {
             await db.execute({
                 sql: `
@@ -551,7 +564,6 @@ export async function getOrCreateAlbum(albumData: {
             });
         }
 
-        // 5. If we assigned a canonicalId during insert, return the canonical version
         if (canonicalSlug) {
             const canonical = await db.execute({
                 sql: `SELECT * FROM albums WHERE slug = ?`,
@@ -574,8 +586,6 @@ export async function getAlbumById(id: number) {
     return result.rows.length > 0 ? result.rows[0] : null;
 }
 
-
-
 export async function syncAlbumCover(artistName: string, albumName: string, coverUrl: string, userId: string, releaseYear?: string | null) {
     const slug = generateSlug(artistName, albumName, releaseYear);
 
@@ -595,7 +605,9 @@ export async function syncAlbumCover(artistName: string, albumName: string, cove
 }
 
 export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null> {
-const sql = `
+    const globalAvg = await getGlobalAverage();
+
+    const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM ratings r2
@@ -614,20 +626,15 @@ const sql = `
             WHERE r.score > 0
             GROUP BY ca.canonical_slug, r.userId
         ),
-        GlobalStats AS  (
-            SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
-            FROM CombinedRatings
-        ),
         AlbumSums AS (
             SELECT 
                 c.albumId, 
                 SUM(c.score) as sumScore, 
                 COUNT(c.userId) as ratingCount,
                 (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                (SUM(c.score) + (${MIN_RATINGS_TO_RANK} * g.globalAvg)) / (COUNT(c.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
+                (SUM(c.score) + (${MIN_RATINGS_TO_RANK} * ?)) / (COUNT(c.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
             FROM CombinedRatings c
-            CROSS JOIN GlobalStats g
-            GROUP BY c.albumId, g.globalAvg
+            GROUP BY c.albumId
         ),
         RankedAlbums AS (
             SELECT 
@@ -653,7 +660,7 @@ const sql = `
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
-    const result = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
+    const result = await db.execute({ sql, args:[globalAvg, MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (result.rows.length === 0) return null;
     
     return result.rows[0] as unknown as AlbumStats;
@@ -673,10 +680,8 @@ export async function searchAlbums(query: string) {
     const conditions: string[] =[];
     const args: string[] =[];
 
-    // The first 4 args apply to the SELECT statement's matchScore
     args.push(searchTerm, searchTerm, looseQuery, searchTerm);
 
-    // Standard exact/loose matches (5 items)
     conditions.push(
         `a.name LIKE ?`,
         `a.artistName LIKE ?`,
@@ -686,8 +691,6 @@ export async function searchAlbums(query: string) {
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
-    // FIX: Only do forgiving queries if the string is reasonably long.
-    // This prevents catastrophic wildcard matches like `%__%` or `%x_%` which crash SQLite.
     if (cleanQuery.length >= 3) {
         const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
         const forgivingQuery = `%${forgivingPattern}%`;
@@ -702,7 +705,6 @@ export async function searchAlbums(query: string) {
         args.push(forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery, forgivingQuery);
     }
 
-    // FIX: Only apply word splitting if the individual words are long enough
     const meaningfulWords = words.filter(w => w.length >= 3);
     if (meaningfulWords.length > 1) {
         const wordConditions = meaningfulWords.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
@@ -756,7 +758,6 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
             SELECT COALESCE(c.slug, a.slug) as target_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-            -- ADDED: Support truncated slugs
             WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
             LIMIT 1
         ),
@@ -777,7 +778,6 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         ORDER BY score DESC
     `;
     
-    // ADDED: Pass the extra params
     const result = await db.execute({ sql, args: [slug, slug, slug + '%'] });
     return result.rows as unknown as UserRating[];
 }
@@ -837,7 +837,6 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
     }
 
     try {
-        // Find the Canonical Album to ensure it exists and to resolve its own ultimate canonical ID
         const canonRes = await db.execute({
             sql: `SELECT id, canonicalId FROM albums WHERE id = ?`,
             args: [canonId]
@@ -847,10 +846,8 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
             return { success: false, message: `Canonical album ID \`${canonId}\` not found in the database.` };
         }
         
-        // Resolve the ultimate canonical ID (in case the provided canonId is already linked to another)
         const resolvedCanonId = (canonRes.rows[0].canonicalId || canonRes.rows[0].id) as number;
 
-        // Find the Target Album to ensure it exists
         const targetRes = await db.execute({
             sql: `SELECT id, canonicalId FROM albums WHERE id = ?`,
             args:[targetId]
@@ -860,18 +857,15 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
             return { success: false, message: `Target album ID \`${targetId}\` not found in the database.` };
         }
 
-        // Check if they are already pointing to the same place
         if (resolvedCanonId === targetId || resolvedCanonId === targetRes.rows[0].canonicalId) {
             return { success: false, message: "These IDs already resolve to the same canonical album." };
         }
 
-        // Update the target album to point to the resolved canonical ID
         await db.execute({
             sql: `UPDATE albums SET canonicalId = ? WHERE id = ?`,
             args: [resolvedCanonId, targetId]
         });
 
-        // Update any other albums that were previously pointing to the target album
         await db.execute({
             sql: `UPDATE albums SET canonicalId = ? WHERE canonicalId = ?`,
             args:[resolvedCanonId, targetId]
@@ -886,7 +880,9 @@ export async function canonizeAlbumById(targetId: number, canonId: number): Prom
 
 export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<string | null> {
     try {
-const sql = `
+        const globalAvg = await getGlobalAverage();
+
+        const sql = `
             WITH CanonicalAlbums AS (
                 SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
                 FROM ratings r2
@@ -902,19 +898,14 @@ const sql = `
                 WHERE r.score > 0
                 GROUP BY ca.canonical_slug, r.userId
             ),
-            GlobalStats AS MATERIALIZED (
-                SELECT COALESCE(CAST(SUM(score) AS FLOAT) / NULLIF(COUNT(*), 0), 0) as globalAvg
-                FROM CombinedRatings
-            ),
             AlbumSums AS (
                 SELECT 
                     c.albumId, 
                     COUNT(c.userId) as ratingCount,
                     (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                    (SUM(c.score) + (${MIN_RATINGS_FOR_HIGHLIGHT} * g.globalAvg)) / (COUNT(c.userId) + ${MIN_RATINGS_FOR_HIGHLIGHT}) as weightedScore
+                    (SUM(c.score) + (${MIN_RATINGS_FOR_HIGHLIGHT} * ?)) / (COUNT(c.userId) + ${MIN_RATINGS_FOR_HIGHLIGHT}) as weightedScore
                 FROM CombinedRatings c
-                CROSS JOIN GlobalStats g
-                GROUP BY c.albumId, g.globalAvg
+                GROUP BY c.albumId
             ),
             EligibleTopAlbums AS (
                 SELECT 
@@ -930,7 +921,7 @@ const sql = `
             )
             SELECT slug FROM EligibleTopAlbums ORDER BY RANDOM() LIMIT 1;
         `;
-        const args = [MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
+        const args = [globalAvg, MIN_RATINGS_FOR_HIGHLIGHT, topLimit];
         const result = await db.execute({ sql, args });
         
         if (result.rows.length === 0) {

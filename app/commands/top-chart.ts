@@ -10,10 +10,19 @@ export async function handleUnratedTopChart(
     interaction: APIChatInputApplicationCommandInteraction,
     waitUntil: (promise: Promise<any>) => void
 ) {
-    // 1. Define the heavy lifting in a background function
+    // 1. Immediately send the deferral request to Discord
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
+        headers: { 'Content-Type': 'application/json' },
+    });
+
     const processChart = async () => {
+        // 2. YIELD THE EVENT LOOP: This 100ms delay is critical. 
+        // It ensures Vercel flushes the HTTP 204 response back to Discord BEFORE canvas/sharp lock up the CPU.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
         try {
-            // Safely get user ID whether they are in a server or DMs
             const userId = (interaction.member?.user?.id || interaction.user?.id) as string;
             if (!userId) {
                 await updateResponse(interaction, { content: "⚠️ Could not identify your user ID." });
@@ -52,7 +61,6 @@ export async function handleUnratedTopChart(
             const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'year': 365 };
             const days = period ? daysMap[period] : undefined;
 
-            // Fetch Unrated Data passing the user ID!
             const albums = await getTopUnratedAlbums(userId, { page, limit, days, genre: genreToQuery });
 
             if (!albums || albums.length === 0) {
@@ -61,7 +69,6 @@ export async function handleUnratedTopChart(
                 return;
             }
 
-            // Generate the image
             const chartBuffer = await createRankedChartImage(albums, gridWidth, gridHeight, page, limit);
 
             const formData = new FormData();
@@ -86,14 +93,13 @@ export async function handleUnratedTopChart(
         }
     };
 
-    // 2. Tell Vercel to process this in the background
+    // 3. Register the task to run in the background
     waitUntil(processChart());
 
-    // 3. INSTANTLY return the defer state back to Discord via HTTP
-    return NextResponse.json({ 
-        type: InteractionResponseType.DeferredChannelMessageWithSource 
-    });
+    // 4. Close the HTTP connection instantly so Discord accepts the deferral
+    return new NextResponse(null, { status: 204 });
 }
+
 
 
 export async function handleTopChart(

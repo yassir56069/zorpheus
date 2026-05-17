@@ -82,27 +82,7 @@ const commands = [
   },
   {
     "name": "feature-queue",
-    "description": "Manage the featured album queue.",
-    "options": [
-      {
-        "name": "add",
-        "description": "Nominate an eligible album (must have exactly 4 ratings) to be featured.",
-        "type": 1, // SUB_COMMAND
-        "options": [
-          {
-            "name": "album",
-            "description": "The album slug to nominate (find it via /album-search).",
-            "type": 3, // STRING
-            "required": true
-          }
-        ]
-      },
-      {
-        "name": "list",
-        "description": "View all albums currently in the feature queue.",
-        "type": 1 // SUB_COMMAND
-      }
-    ]
+    "description": "📋 View the featured album nomination queue.",
   },
   {
     "name": "feature-points",

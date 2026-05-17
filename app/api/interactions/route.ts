@@ -27,11 +27,11 @@ import { handleJoin } from '@/app/commands/join';
 import { handleDev } from '@/app/sandbox/dev';
 import {
     handleFeaturedAlbum,
-    handleFeatureQueueAdd,
     handleFeatureQueueList,
     handleFeaturePoints,
     handleFeatureTick,
 } from '@/app/commands/feature';
+import { enqueueAlbumForFeature } from '@/utils/database/feature-service';
 
 // database
 import { upsertRating } from '@/utils/database/ratings-service';
@@ -98,12 +98,7 @@ export async function POST(req: Request) {
             case 'featured-album':
                 return handleFeaturedAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'feature-queue':
-                // Subcommand routing via the first option's name
-                // eslint-disable-next-line no-case-declarations
-                const subcommand = (interaction.data as { options?: Array<{ name: string }> }).options?.[0]?.name;
-                if (subcommand === 'add') return handleFeatureQueueAdd(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
-                if (subcommand === 'list') return handleFeatureQueueList(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
-                return new NextResponse('Unknown subcommand', { status: 400 });
+                return handleFeatureQueueList(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'feature-points':
                 return handleFeaturePoints(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'feature-tick':
@@ -335,6 +330,48 @@ export async function POST(req: Request) {
             //#region Counter
             if (customId.startsWith('countdown_')) {
                 return handleCountdownInteraction(buttonInteraction);
+            }
+            //#endregion
+
+            //#region Feature Nominate Button (From Album Embed)
+            if (customId.startsWith('feature_nominate:')) {
+                const albumSlug = customId.split(':')[1];
+                const userId = buttonInteraction.member?.user.id || buttonInteraction.user?.id;
+
+                if (!userId) {
+                    return NextResponse.json({
+                        type: InteractionResponseType.ChannelMessageWithSource,
+                        data: { content: '❌ Could not identify your user.', flags: 64 }
+                    });
+                }
+
+                waitUntil((async () => {
+                    try {
+                        const result = await enqueueAlbumForFeature(userId, albumSlug);
+
+                        if (!result.success) {
+                            await editInteractionResponse(interaction.token, {
+                                content: `❌ Could not nominate album: ${result.reason}`
+                            });
+                            return;
+                        }
+
+                        const startTs = Math.floor(
+                            new Date(result.startDate! + 'T00:00:00.000Z').getTime() / 1000
+                        );
+
+                        await editInteractionResponse(interaction.token, {
+                            content: `⭐ **\`${albumSlug}\`** has been added to the feature queue! It will be featured starting <t:${startTs}:D>.`
+                        });
+                    } catch (error) {
+                        console.error('[FEATURE] Nominate button error:', error);
+                        await editInteractionResponse(interaction.token, {
+                            content: '❌ An error occurred while nominating the album.'
+                        });
+                    }
+                })());
+
+                return NextResponse.json({ type: InteractionResponseType.DeferredMessageUpdate });
             }
             //#endregion
 

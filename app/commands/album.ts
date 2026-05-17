@@ -15,10 +15,12 @@ import {
     getOrCreateAlbum, 
     canonizeAlbum,
     searchArtists,
-    canonizeAlbumById
+    canonizeAlbumById,
+    MIN_RATINGS_TO_RANK
 } from '@/utils/database/album-service';
 import { getUserLastFM } from '@/utils/database/user-service';
 import { getMergedAlbumGenres } from '@/utils/database/genre-service';
+import { FEATURE_ELIGIBLE_MAX_RATINGS } from '@/utils/database/feature-service';
 
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
@@ -69,34 +71,27 @@ function formatAlbumStats(
 ): string {
     const isRanked = rank !== null;
     
-    // If ranked, use the Bayesian score. Otherwise, fall back to the raw average.
     const activeScore = (isRanked && weightedScore !== null) ? weightedScore : avgScore;
     const rawScore = activeScore !== null ? (Number(activeScore) / 2) : null;
     const scoreStr = rawScore !== null ? rawScore.toFixed(2) : "N/A";
 
     const rankDisplay = isRanked ? `#${rank}` : "Unranked";
 
-    // Determine Colors
-    let scoreColor = "\u001b[1;33m"; // Default Yellow
-    let rankColor = "\u001b[1;34m"; // Default Blue
+    let scoreColor = "\u001b[1;33m";
+    let rankColor = "\u001b[1;34m";
 
     if (!isRanked) {
-        // ❌ Album is UNRANKED -> Grey out both the score and rank
         scoreColor = "\u001b[1;30m";
         rankColor = "\u001b[1;30m";
     } else {
-        // ✅ Album is RANKED -> Use normal bright colors based on Bayesian score
         if (rawScore !== null) {
-            if (rawScore >= 4.0) scoreColor = "\u001b[1;32m";      // Green
-            else if (rawScore < 3.0) scoreColor = "\u001b[1;31m";  // Red
+            if (rawScore >= 4.0) scoreColor = "\u001b[1;32m";
+            else if (rawScore < 3.0) scoreColor = "\u001b[1;31m";
         }
-        
-        // Rank Colors
-        if (rank <= 10) rankColor = "\u001b[1;35m";       // Hot Pink
-        else if (rank <= 50) rankColor = "\u001b[1;33m";  // Yellow
+        if (rank <= 10) rankColor = "\u001b[1;35m";
+        else if (rank <= 50) rankColor = "\u001b[1;33m";
     }
 
-    // Consolidated layout to 3 cleanly aligned lines
     return `\`\`\`ansi
 \u001b[2;34m ⭐ Score         : ${scoreColor}${scoreStr}\u001b[0m
 \u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m
@@ -107,19 +102,15 @@ function formatAlbumStats(
 
 export async function handleAlbum(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album command");
-    const options = interaction.data.options ??[];
+    const options = interaction.data.options ?? [];
     const slugOption = options.find(opt => opt.name === 'slug-value') as APIApplicationCommandInteractionDataStringOption | undefined;
     
-    // Support both server and DM interactions
     const discordUserId = interaction.member?.user?.id || interaction.user?.id;
 
-    // Define the background task
     const runBackgroundTask = async () => {
         try {
-            // Explicitly type as string | undefined
             let targetSlug: string | undefined = slugOption?.value;
 
-            // --- NEW LOGIC: If no slug provided, fetch from Last.fm ---
             if (!targetSlug) {
                 console.log(`[ALBUM] No slug provided, fetching current Last.fm track for user ${discordUserId}`);
                 
@@ -157,7 +148,6 @@ export async function handleAlbum(interaction: APIChatInputApplicationCommandInt
 
                 console.log(`[ALBUM] Found current album: ${albumName} by ${artist}. Checking database...`);
                 
-                // Get or create the album to ensure it exists and get the exact canonical slug
                 const albumRecord = await getOrCreateAlbum({
                     name: albumName,
                     artistName: artist,
@@ -172,13 +162,10 @@ export async function handleAlbum(interaction: APIChatInputApplicationCommandInt
                     return;
                 }
 
-                // FIX: Cast the LibSQL 'Value' type to 'string'
                 targetSlug = albumRecord.slug as string;
                 console.log(`[ALBUM] Derived slug from current track: ${targetSlug}`);
             }
-            // --- END NEW LOGIC ---
 
-            // Fallback safety catch so renderAlbumEmbed doesn't get undefined
             if (!targetSlug) {
                  await editInteractionResponse(interaction.token, { 
                     content: `❌ Could not resolve the album slug.` 
@@ -199,14 +186,13 @@ export async function handleAlbum(interaction: APIChatInputApplicationCommandInt
         }
     };
 
-    // Defers the response and runs task in background
     waitUntil(runBackgroundTask());
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
 export async function handleAlbumSearch(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     console.log("[ALBUM] Received /album-search command");
-    const options = interaction.data.options ??[];
+    const options = interaction.data.options ?? [];
     const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
 
     if (!queryOption) return new NextResponse('Missing query', { status: 400 });
@@ -232,10 +218,8 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                 return;
             }
 
-            // FIX: Deduplicate truncated slugs to prevent Discord 400 Bad Request errors 
-            // from identical values (caused by artist names exceeding 100 chars).
             const seenValues = new Set<string>();
-            const uniqueOptions =[];
+            const uniqueOptions = [];
 
             for (const hit of hits) {
                 const value = hit.slug.substring(0, 100);
@@ -251,9 +235,9 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
 
             await editInteractionResponse(interaction.token, {
                 content: `🔍 Found **${hits.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
-                components:[{
+                components: [{
                     type: ComponentType.ActionRow,
-                    components:[{
+                    components: [{
                         type: ComponentType.StringSelect,
                         custom_id: `album_search_select`,
                         placeholder: "Choose an album to view",
@@ -267,7 +251,6 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
     };
 
     waitUntil(runBackgroundTask());
-
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
 
@@ -293,11 +276,9 @@ export async function renderAlbumEmbed(slug: string) {
         }
     }
 
-    // Fetch associated data
     const ratings = await getAlbumRatings(album.slug);
     const genres = await getMergedAlbumGenres(album.slug);
 
-    // NEW: Fetch artist info to get their total album count in the database
     const artistHits = await searchArtists(album.artistName);
     const exactArtist = artistHits.find(h => h.artistName.toLowerCase() === album.artistName.toLowerCase()) || artistHits[0];
     const albumCount = exactArtist ? exactArtist.albumCount : 1;
@@ -308,7 +289,7 @@ export async function renderAlbumEmbed(slug: string) {
 
     const genresDisplay = genres.length > 0
         ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
-        : ''; // If no genres, it won't render the line
+        : '';
 
     const statsBlock = formatAlbumStats(
         album.avgScore, 
@@ -317,26 +298,79 @@ export async function renderAlbumEmbed(slug: string) {
         album.ratingCount || 0
     );
 
+    // Determine feature button state
+    const ratingCount = album.ratingCount || 0;
+    const isFeatured = (album as any).isFeatured as number ?? 0;
+    const isFeatureEligible = ratingCount === FEATURE_ELIGIBLE_MAX_RATINGS && isFeatured === 0;
+    const isCurrentlyFeatured = isFeatured === 1;
+    const wasEverFeatured = isFeatured === 2;
+    const isAlreadyRanked = ratingCount >= MIN_RATINGS_TO_RANK;
+
+    // Build the bottom action row depending on album state
+    const bottomRowButtons: any[] = [
+        {
+            type: 2, // Button
+            style: 2, // Secondary (grey)
+            custom_id: `view_artist:${album.id}`,
+            label: `${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
+            emoji: { name: '👨‍🎤' }
+        }
+    ];
+
+    if (isFeatureEligible) {
+        // Album is one rating away from ranking — show the nominate button
+        bottomRowButtons.push({
+            type: 2,
+            style: 1, // Primary (blurple)
+            custom_id: `feature_nominate:${album.slug}`,
+            label: `Nominate for Featured`,
+            emoji: { name: '⭐' }
+        });
+    } else if (isCurrentlyFeatured) {
+        // Show a disabled indicator that it's currently the featured album
+        bottomRowButtons.push({
+            type: 2,
+            style: 2,
+            custom_id: `feature_noop`,
+            label: `Currently Featured`,
+            emoji: { name: '🌟' },
+            disabled: true
+        });
+    } else if (wasEverFeatured) {
+        // Show a disabled indicator that it's already had its week
+        bottomRowButtons.push({
+            type: 2,
+            style: 2,
+            custom_id: `feature_noop`,
+            label: `Previously Featured`,
+            emoji: { name: '📅' },
+            disabled: true
+        });
+    } else if (isAlreadyRanked) {
+        // Ranked albums are ineligible — no button needed, but you could add one if desired
+        // Leave it absent to keep the embed clean
+    }
+
     return {
         data: {
-            embeds:[{
+            embeds: [{
                 title: `${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
                              statsBlock +
                              `\n**Community Ratings:**\n${ratingsDisplay}`,
-                color: 0x3498db,
+                color: isCurrentlyFeatured ? 0xf5a623 : 0x3498db, // Gold if featured, blue otherwise
                 thumbnail: coverArtUrl ? { url: coverArtUrl } : undefined,
                 footer: { text: `ID: ${album.id} | Slug: ${album.slug}` }
             }],
-            components:[
+            components: [
                 {
                     type: ComponentType.ActionRow,
-                    components:[{
+                    components: [{
                         type: ComponentType.StringSelect,
                         custom_id: `rate_album_embed`,
                         placeholder: "Rate this album",
-                        options:[
+                        options: [
                             { label: '[5.0] ★★★★★', value: '10' },
                             { label: '[4.5] ★★★★½', value: '9' },
                             { label: '[4.0] ★★★★', value: '8' },
@@ -350,19 +384,9 @@ export async function renderAlbumEmbed(slug: string) {
                         ]
                     }]
                 },
-                // --- NEW ROW: View Artist Button ---
                 {
                     type: ComponentType.ActionRow,
-                    components:[
-                        {
-                            type: 2, // ComponentType.Button
-                            style: 2, // Secondary (Gray button)
-                            // Encode the artist name into the custom_id (cap at 80 chars to stay under 100 limit)
-                            custom_id: `view_artist:${album.id}`,
-                            label: `View ${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
-                            emoji: { name: '👨‍🎤' }
-                        }
-                    ]
+                    components: bottomRowButtons
                 }
             ]
         }
@@ -374,13 +398,8 @@ export async function handleCanonizeAlbum(
     waitUntil: (promise: Promise<any>) => void
 ) {
     console.log("[ALBUM] Received /canonize-album command");
-    
-    // Optional check: You can verify the user's admin status here if you aren't using Discord's default_member_permissions
-    // const memberPermissions = BigInt(interaction.member?.permissions || "0");
-    // const isAdmin = (memberPermissions & BigInt(0x8)) === BigInt(0x8);
-    // if (!isAdmin) return new NextResponse('Unauthorized', { status: 403 });
 
-    const options = interaction.data.options ??[];
+    const options = interaction.data.options ?? [];
     const targetSlugOpt = options.find(opt => opt.name === 'target-slug') as APIApplicationCommandInteractionDataStringOption | undefined;
     const canonSlugOpt = options.find(opt => opt.name === 'canon-slug') as APIApplicationCommandInteractionDataStringOption | undefined;
 
@@ -410,13 +429,9 @@ export async function handleCanonizeAlbum(
         }
     };
 
-    // Defer the interaction immediately, process in background
     waitUntil(runBackgroundTask());
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }
-
-// Add this import at the top if it's not already there:
-// import { APIApplicationCommandInteractionDataIntegerOption } from 'discord-api-types/v10';
 
 export async function handleCanonizeAlbumById(
     interaction: APIChatInputApplicationCommandInteraction, 
@@ -424,7 +439,7 @@ export async function handleCanonizeAlbumById(
 ) {
     console.log("[ALBUM] Received /canonize-album-id command");
 
-    const options = interaction.data.options ??[];
+    const options = interaction.data.options ?? [];
     const targetIdOpt = options.find(opt => opt.name === 'target-id') as APIApplicationCommandInteractionDataIntegerOption | undefined;
     const canonIdOpt = options.find(opt => opt.name === 'canon-id') as APIApplicationCommandInteractionDataIntegerOption | undefined;
 
@@ -439,27 +454,18 @@ export async function handleCanonizeAlbumById(
     const runBackgroundTask = async () => {
         try {
             console.log(`[ALBUM] Attempting to canonize by ID: ${targetId} -> ${canonId}`);
-            // Call the new service function here
-            if (userId == '508817156847173632' || userId == '259786443679858689' || userId == '959791198938230784')
-            {
-
+            if (userId == '508817156847173632' || userId == '259786443679858689' || userId == '959791198938230784') {
                 const result = await canonizeAlbumById(targetId, canonId);
-
                 await editInteractionResponse(interaction.token, {
                     content: result.success 
                         ? `🔗 **Success:** ${result.message}` 
                         : `❌ **Failed:** ${result.message}`
                 });
-            }
-            else 
-            {
-
+            } else {
                 await editInteractionResponse(interaction.token, { 
                     content: `❌ No Canonizing for you 😾😾. Contact me if you need/want to use this command!` 
                 });
             }
-
-
         } catch (error) {
             console.error(`[ALBUM] FATAL error in canonize-album-id task:`, error);
             await editInteractionResponse(interaction.token, { 
@@ -468,7 +474,6 @@ export async function handleCanonizeAlbumById(
         }
     };
 
-    // Defer the interaction immediately, process in background
     waitUntil(runBackgroundTask());
     return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
 }

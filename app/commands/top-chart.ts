@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { InteractionResponseType, APIChatInputApplicationCommandInteraction, APIApplicationCommandInteractionDataStringOption } from 'discord-api-types/v10';
 import sharp from 'sharp';
 import { createCanvas } from 'canvas';
-import { getTopAlbums } from '@/utils/database/album-service';
+import { getTopAlbums, getTopUnratedAlbums } from '@/utils/database/album-service';
 import { mapLastFmTagToGenre } from '@/utils/database/genre-service';
 
 export async function handleUnratedTopChart(interaction: APIChatInputApplicationCommandInteraction) {

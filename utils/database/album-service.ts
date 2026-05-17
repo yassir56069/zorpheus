@@ -193,7 +193,6 @@ export async function getTopUnratedAlbums(userId: string, options: {
     const { page = 1, limit = 20, days, genre } = options;
     const offset = (page - 1) * limit;
     
-    // Fetch cached global average once per request
     const globalAvg = await getGlobalAverage(); 
 
     const dateFilter = days 
@@ -205,9 +204,8 @@ export async function getTopUnratedAlbums(userId: string, options: {
     let genreCTE = '';
     let genreJoin = '';
     
-    // The first argument is the userId for the UserRatedAlbums CTE
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const args: any[] = [userId];
+    const args: any[] = [];
 
     if (genre) {
         genreCTE = `
@@ -229,12 +227,6 @@ export async function getTopUnratedAlbums(userId: string, options: {
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
-        ),
-        UserRatedAlbums AS (
-            SELECT DISTINCT ca.canonical_slug
-            FROM ratings r
-            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
-            WHERE r.userId = ?
         ),
         ${genreCTE}
         CombinedRatings AS MATERIALIZED (
@@ -276,12 +268,18 @@ export async function getTopUnratedAlbums(userId: string, options: {
             r.serverRank
         FROM RankedAlbums r
         JOIN albums a ON r.albumId = a.slug
-        WHERE r.albumId NOT IN (SELECT canonical_slug FROM UserRatedAlbums)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM ratings ur
+            JOIN CanonicalAlbums ca_ur ON ur.albumId = ca_ur.original_slug
+            WHERE ur.userId = ? AND ca_ur.canonical_slug = r.albumId
+        )
         ORDER BY r.serverRank ASC
         LIMIT ? OFFSET ?
     `;
 
-    args.push(globalAvg, minRatings, limit, offset);
+    // Push args in the exact order they appear in the query
+    args.push(globalAvg, minRatings, userId, limit, offset);
+    
     const result = await db.execute({ sql, args });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];

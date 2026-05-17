@@ -93,7 +93,6 @@ export async function POST(req: Request) {
                 return handleCanonizeAlbumById(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'aotd':
                 return handleAlbumHighlight(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
-
             //#region Featured Album
             case 'featured-album':
                 return handleFeaturedAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
@@ -104,7 +103,6 @@ export async function POST(req: Request) {
             case 'feature-tick':
                 return handleFeatureTick(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             //#endregion
-
             case 'album':
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':
@@ -118,9 +116,9 @@ export async function POST(req: Request) {
             case 'donor-albums':
                 return handleDonorAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-chart':
-                return handleTopChart(interaction as APIChatInputApplicationCommandInteraction);
+                return handleTopChart(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-unrated':
-                return handleUnratedTopChart(interaction as APIChatInputApplicationCommandInteraction);
+                return handleUnratedTopChart(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'join':
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':

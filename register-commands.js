@@ -23,13 +23,13 @@ const commands = [
   //         },
   //     ],
   // },
-  
+
   //#region Admin: Canonize albums
   {
     "name": "canonize-album",
     "description": "[Admin] Link a duplicate album slug to the main canonical slug.",
-    "default_member_permissions": "8", 
-    "options":[
+    "default_member_permissions": "8",
+    "options": [
       {
         "name": "target-slug",
         "description": "The duplicate slug that should be hidden/merged.",
@@ -46,11 +46,11 @@ const commands = [
   },
   //#endregion
 
-    //#region Admin: Canonize albums by id
+  //#region Admin: Canonize albums by id
   {
     "name": "canonize-album-id",
     "description": "Link a duplicate album slug to the main canonical slug. Use with caution.. please!",
-    "options":[
+    "options": [
       {
         "name": "target-id",
         "description": "This should be the target (the incorrect album)",
@@ -67,11 +67,51 @@ const commands = [
   },
   //#endregion
 
-  //#region 
+  //#region Admin: AOTD
   {
     "name": "aotd",
-    "description": "[Admin] retrieves a random album within the top 30 and marks it as highlighted. ",
-    "default_member_permissions": "8", 
+    "description": "[Admin] retrieves a random album within the top 30 and marks it as highlighted.",
+    "default_member_permissions": "8",
+  },
+  //#endregion
+
+  //#region Featured Album
+  {
+    "name": "featured-album",
+    "description": "⭐ Display the currently featured album of the week.",
+  },
+  {
+    "name": "feature-queue",
+    "description": "Manage the featured album queue.",
+    "options": [
+      {
+        "name": "add",
+        "description": "Nominate an eligible album (must have exactly 4 ratings) to be featured.",
+        "type": 1, // SUB_COMMAND
+        "options": [
+          {
+            "name": "album",
+            "description": "The album slug to nominate (find it via /album-search).",
+            "type": 3, // STRING
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "list",
+        "description": "View all albums currently in the feature queue.",
+        "type": 1 // SUB_COMMAND
+      }
+    ]
+  },
+  {
+    "name": "feature-points",
+    "description": "🏆 View your feature points and the top contributor leaderboard.",
+  },
+  {
+    "name": "feature-tick",
+    "description": "[Admin] Manually trigger the weekly featured album rotation.",
+    "default_member_permissions": "8",
   },
   //#endregion
 
@@ -118,7 +158,7 @@ const commands = [
   },
   //#endregion
 
-  //#region Album 
+  //#region Album
   {
     name: 'album',
     description: 'Retrieve an album by it\'s slug',
@@ -134,21 +174,21 @@ const commands = [
   //#endregion
 
   //#region Artist Search
-    {
-      name: 'artist-search',
-      description: '🎭 search for an artist to view their discography',
-      options:[
-        {
-          name: 'searchterm',
-          description: 'Try the exact or partial name of the artist.',
-          type: 3, // STRING
-          required: true,
-        },
-      ],
-    },
-    //#endregion
+  {
+    name: 'artist-search',
+    description: '🎭 search for an artist to view their discography',
+    options: [
+      {
+        name: 'searchterm',
+        description: 'Try the exact or partial name of the artist.',
+        type: 3, // STRING
+        required: true,
+      },
+    ],
+  },
+  //#endregion
 
-  //#region Top Albums 
+  //#region Top Albums
   {
     "name": "top-albums",
     "description": "View the top-rated albums on the server",
@@ -173,14 +213,14 @@ const commands = [
       {
         "name": "genre",
         "description": "pass a genre name to generate a genre chart instead.",
-        "type": 3, 
+        "type": 3,
         "required": false
       }
     ]
   },
   //#endregion
 
-  //#region Donor Albums 
+  //#region Donor Albums
   {
     "name": "donor-albums",
     "description": "View albums that are missing a few ratings to be ranked.",
@@ -205,7 +245,7 @@ const commands = [
       {
         "name": "genre",
         "description": "pass a genre name to generate a genre chart instead.",
-        "type": 3, 
+        "type": 3,
         "required": false
       }
     ]
@@ -261,7 +301,7 @@ const commands = [
   //#endregion
 
   //#region rc
-    {
+  {
     name: 'rc',
     description: 'Raw Cover - displays the raw album art for a track or search.',
     options: [
@@ -277,45 +317,45 @@ const commands = [
 
   //#region Rate
   {
-      name: 'rate',
-      description: 'Rate the album you are currently listening to (or specify a score).',
-      options: [
-          {
-              name: 'stars',
-              description: 'The rating (1-5 stars, 0.5 increments).',
-              type: 10, // NUMBER
-              required: false,
-              choices: [
-                { name: '[5.0] ★★★★★', value: 10},
-                { name: '[4.5] ★★★★½', value: 9 },
-                { name: '[4.0] ★★★★', value: 8},
-                { name: '[3.5] ★★★½', value: 7 },
-                { name: '[3.0] ★★★', value: 6},
-                { name: '[2.5] ★★½', value: 5 },
-                { name: '[2.0] ★★', value: 4},
-                { name: '[1.5] ★½', value: 3 },
-                { name: '[1.0] ★', value: 2 },
-                { name: '[0.5] ½', value: 1 },
-              ]
-          }
-      ]
+    name: 'rate',
+    description: 'Rate the album you are currently listening to (or specify a score).',
+    options: [
+      {
+        name: 'stars',
+        description: 'The rating (1-5 stars, 0.5 increments).',
+        type: 10, // NUMBER
+        required: false,
+        choices: [
+          { name: '[5.0] ★★★★★', value: 10 },
+          { name: '[4.5] ★★★★½', value: 9 },
+          { name: '[4.0] ★★★★', value: 8 },
+          { name: '[3.5] ★★★½', value: 7 },
+          { name: '[3.0] ★★★', value: 6 },
+          { name: '[2.5] ★★½', value: 5 },
+          { name: '[2.0] ★★', value: 4 },
+          { name: '[1.5] ★½', value: 3 },
+          { name: '[1.0] ★', value: 2 },
+          { name: '[0.5] ½', value: 1 },
+        ]
+      }
+    ]
   },
-  //#endregion,
+  //#endregion
 
-//#region Assign Genre
+  //#region Assign Genre
   {
     "name": "assign-genre",
     "description": "Manually tag an album with a genre from the database.",
-    "options":[
+    "options": [
       {
         "name": "album-id",
         "description": "The ID of the album (found at the bottom of the /album embed).",
-        "type": 3, 
+        "type": 3,
         "required": false
       }
     ]
   },
-  //#endregion,
+  //#endregion
 
   //#region Import
   {
@@ -330,7 +370,6 @@ const commands = [
       }
     ]
   },
-
   //#endregion
 
   //#region Chart
@@ -408,7 +447,7 @@ const commands = [
       {
         "name": "size",
         "description": "The dimensions of the chart grid (default: 3x3).",
-        "type": 3, 
+        "type": 3,
         "required": false,
         "choices": [
           { name: '3x3', value: '3x3' },
@@ -435,13 +474,13 @@ const commands = [
       {
         "name": "page",
         "description": "Which page of the rankings to display (default: 1).",
-        "type": 4, 
+        "type": 4,
         "required": false
       },
       {
         "name": "genre",
         "description": "pass a genre name to generate a genre chart instead.",
-        "type": 3, 
+        "type": 3,
         "required": false
       }
     ]
@@ -459,7 +498,7 @@ const commands = [
   {
     name: 'user-ratings',
     description: '🔎 Search for a specific album among a user\'s ratings',
-    options:[
+    options: [
       {
         name: 'searchterm',
         description: 'Try the exact or partial name of the artist or album.',
@@ -476,68 +515,6 @@ const commands = [
   },
   //#endregion
 
-  //#region Server Chart (TO BE REWORKED!)
-  // {
-  //   name: 'serverchart',
-  //   description: 'Generates a grid of the most listened to albums for the entire server.',
-  //   options: [
-  //     {
-  //       name: 'size',
-  //       description: 'The dimensions of the chart grid (default: 3x3).',
-  //       type: 3, // STRING
-  //       required: false,
-  //       choices: [
-  //         { name: '3x3 (Default)', value: '3x3' },
-  //         { name: '4x4', value: '4x4' },
-  //         { name: '5x5', value: '5x5' },
-  //         { name: '8x5', value: '8x5' },
-  //         { name: '10x10', value: '10x10' },
-  //         { name: '4x8', value: '4x8' },
-  //         { name: '15x6', value: '15x6' },
-  //       ]
-  //     },
-  //     {
-  //       name: 'period',
-  //       description: 'The time period for the chart (default: 7day).',
-  //       type: 3, // STRING
-  //       required: false,
-  //       choices: [
-  //         { name: 'Last 7 Days', value: '7day' },
-  //         { name: '1 Month', value: '1month' },
-  //         { name: '3 Months', value: '3month' },
-  //         { name: '6 Months', value: '6month' },
-  //         { name: '1 Year', value: '12month' },
-  //         { name: 'Overall', value: 'overall' },
-  //       ]
-  //     },
-  //     {
-  //       name: 'labelling',
-  //       description: 'How to display album names (default: No Names).',
-  //       type: 3, // STRING
-  //       required: false,
-  //       choices: [
-  //         { name: 'No Names (Default)', value: 'no_names' },
-  //         { name: 'Topster Style', value: 'topster' },
-  //         { name: 'Names Under Albums', value: 'under' },
-  //       ],
-  //     },
-  //     {
-  //       name: 'filter_remastered',
-  //       description: 'Combine remastered versions into the original album (Default: True).',
-  //       type: 5, // BOOLEAN
-  //       required: false,
-  //     },
-  //     {
-  //       name: 'filter_greys',
-  //       description: 'Filter out albums that have no cover art (Default: True).',
-  //       type: 5, // BOOLEAN
-  //       required: false,
-  //     }
-  //   ]
-  // },
-
-  //#endregion
-
   //#region  DEPRECATED / UNUSED
   {
     name: 'league',
@@ -546,7 +523,7 @@ const commands = [
       {
         name: 'find',
         description: "Finds tracks in a Spotify playlist by the server's top artists.",
-        type: 1, // This type indicates a SUB_COMMAND
+        type: 1,
         options: [
           {
             name: 'playlist',
@@ -559,27 +536,27 @@ const commands = [
       {
         name: 'banned',
         description: "Displays the top 30 'banned' artists for the server league.",
-        type: 1, // This type indicates a SUB_COMMAND
+        type: 1,
       }
     ]
   },
   {
-  "name": "dev",
-  "description": "Developer-only commands for testing.",
-  "options": [
+    "name": "dev",
+    "description": "Developer-only commands for testing.",
+    "options": [
       {
-      "name": "key",
-      "description": "The specific developer command to run",
-      "type": 3, // String type
-      "required": true
+        "name": "key",
+        "description": "The specific developer command to run",
+        "type": 3,
+        "required": true
       },
       {
-      "name": "value",
-      "description": "Optional value for the test command.",
-      "type": 3, // String type
-      "required": false
+        "name": "value",
+        "description": "Optional value for the test command.",
+        "type": 3,
+        "required": false
       }
-  ]
+    ]
   },
   {
     name: 'countdown',

@@ -25,6 +25,13 @@ import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
 import { handleJoin } from '@/app/commands/join';
 import { handleDev } from '@/app/sandbox/dev';
+import {
+    handleFeaturedAlbum,
+    handleFeatureQueueAdd,
+    handleFeatureQueueList,
+    handleFeaturePoints,
+    handleFeatureTick,
+} from '@/app/commands/feature';
 
 // database
 import { upsertRating } from '@/utils/database/ratings-service';
@@ -62,7 +69,7 @@ export async function POST(req: Request) {
                 flags: 64,
             },
         });
-    }    
+    }
     //#endregion
 
     //#region  Commands
@@ -76,16 +83,33 @@ export async function POST(req: Request) {
                 return handlePing(interaction as APIChatInputApplicationCommandInteraction);
             case 'rate':
                 return handleRate(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
-            case 'import': 
+            case 'import':
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
             case 'assign-genre':
-                return handleAssignGenre(interaction as APIChatInputApplicationCommandInteraction,waitUntil);
+                return handleAssignGenre(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'canonize-album':
                 return handleCanonizeAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'canonize-album-id':
                 return handleCanonizeAlbumById(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'aotd':
-            return handleAlbumHighlight(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+                return handleAlbumHighlight(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+
+            //#region Featured Album
+            case 'featured-album':
+                return handleFeaturedAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'feature-queue':
+                // Subcommand routing via the first option's name
+                // eslint-disable-next-line no-case-declarations
+                const subcommand = (interaction.data as { options?: Array<{ name: string }> }).options?.[0]?.name;
+                if (subcommand === 'add') return handleFeatureQueueAdd(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+                if (subcommand === 'list') return handleFeatureQueueList(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+                return new NextResponse('Unknown subcommand', { status: 400 });
+            case 'feature-points':
+                return handleFeaturePoints(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'feature-tick':
+                return handleFeatureTick(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            //#endregion
+
             case 'album':
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'album-search':
@@ -100,23 +124,23 @@ export async function POST(req: Request) {
                 return handleDonorAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-chart':
                 return handleTopChart(interaction as APIChatInputApplicationCommandInteraction);
-            case 'join': 
+            case 'join':
                 return handleJoin(interaction as APIChatInputApplicationCommandInteraction);
             case 'cover':
                 return handleCover(interaction as APIChatInputApplicationCommandInteraction);
             case 'fm':
                 return handleFm(interaction as APIChatInputApplicationCommandInteraction);
-            case 'countdown': 
+            case 'countdown':
                 return handleCountdown(interaction as APIChatInputApplicationCommandInteraction);
-            case 'profile': 
-                return handleProfile(interaction as APIChatInputApplicationCommandInteraction); 
-            case 'chart': 
+            case 'profile':
+                return handleProfile(interaction as APIChatInputApplicationCommandInteraction);
+            case 'chart':
                 return handleChart(interaction as APIChatInputApplicationCommandInteraction);
-            case 'serverchart': 
+            case 'serverchart':
                 return await handleServerChart(interaction as APIChatInputApplicationCommandInteraction);
-            case 'league': 
-                return handleLeague(interaction as APIChatInputApplicationCommandInteraction)
-            case 'rc': 
+            case 'league':
+                return handleLeague(interaction as APIChatInputApplicationCommandInteraction);
+            case 'rc':
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
@@ -166,8 +190,8 @@ export async function POST(req: Request) {
                     type: InteractionResponseType.UpdateMessage,
                     data: {
                         content: `✅ Successfully rated **${albumName}** by **${artistName}**: **${score / 2}** stars.`,
-                        embeds:[],
-                        components:[]
+                        embeds: [],
+                        components: []
                     }
                 });
             }
@@ -185,7 +209,6 @@ export async function POST(req: Request) {
                     });
                 }
 
-                // Extract the album slug directly from the embed's footer!
                 const embed = selectInteraction.message.embeds[0];
                 const footerText = embed?.footer?.text;
                 const slugMatch = footerText?.match(/Slug: (.+)/);
@@ -198,16 +221,11 @@ export async function POST(req: Request) {
                     });
                 }
 
-                // Fire background update: Save rating and refresh the embed for everyone
                 waitUntil((async () => {
                     try {
                         await upsertRating(actingUserId, slug, score);
-                        
-                        // Re-fetch the album so the community score updates
+
                         const result = await renderAlbumEmbed(slug);
-                        
-                        // Overwrite the interaction payload to update the embed visually
-                        // By doing ...result.data, it automatically puts the dropdown menu back on it!
                         await editInteractionResponse(interaction.token, {
                             ...result.data
                         });
@@ -216,34 +234,26 @@ export async function POST(req: Request) {
                     }
                 })());
 
-                // Enter a loading state so the dropdown shows it was clicked successfully
                 return NextResponse.json({
                     type: InteractionResponseType.DeferredMessageUpdate
                 });
             }
             //#endregion
 
-
-
             //#region Album Search
             if (customId === 'album_search_select') {
                 const selectedSlug = componentInteraction.data.values[0];
-                
-                // Fire off the background task safely using waitUntil
+
                 waitUntil((async () => {
                     try {
                         const result = await renderAlbumEmbed(selectedSlug);
-                        
                         await editInteractionResponse(interaction.token, {
-                            content: "", 
+                            content: "",
                             ...result.data
-                            // NOTE: We do NOT clear the menu array here, 
-                            // so the rating dropdown properly attaches to the search result!
                         });
-
                     } catch (error) {
                         console.error("[ALBUM] Select Menu Background Error:", error);
-                        await editInteractionResponse(interaction.token, { 
+                        await editInteractionResponse(interaction.token, {
                             content: `❌ An internal error occurred while retrieving the album.`,
                             embeds: [],
                             components: []
@@ -251,7 +261,6 @@ export async function POST(req: Request) {
                     }
                 })());
 
-                // IMMEDIATELY update the message to a loading state 
                 return NextResponse.json({
                     type: InteractionResponseType.UpdateMessage,
                     data: {
@@ -262,57 +271,21 @@ export async function POST(req: Request) {
                 });
             }
             //#endregion
-            if (customId === 'album_search_select') {
-                const selectedSlug = componentInteraction.data.values[0];
-                
-                // Fire off the background task safely using waitUntil
-                waitUntil((async () => {
-                    try {
-                        const result = await renderAlbumEmbed(selectedSlug);
-                        
-                        await editInteractionResponse(interaction.token, {
-                            content: "", 
-                            ...result.data
-                            // NOTE: We do NOT clear the menu array here, 
-                            // so the rating dropdown properly attaches to the search result!
-                        });
 
-                    } catch (error) {
-                        console.error("[ALBUM] Select Menu Background Error:", error);
-                        await editInteractionResponse(interaction.token, { 
-                            content: `❌ An internal error occurred while retrieving the album.`,
-                            embeds: [],
-                            components: []
-                        });
-                    }
-                })());
-
-                // IMMEDIATELY update the message to a loading state 
-                return NextResponse.json({
-                    type: InteractionResponseType.UpdateMessage,
-                    data: {
-                        content: `⏳ Fetching statistics and cover art for \`${selectedSlug}\`. This might take a moment...`,
-                        embeds: [],
-                        components: []
-                    }
-                });
-            }
             //#region Artist Search
             if (customId === 'artist_search_select') {
                 const selectedArtist = componentInteraction.data.values[0];
-                
-                // Fire off the background task safely using waitUntil
+
                 waitUntil((async () => {
                     try {
                         const result = await renderArtistEmbed(selectedArtist);
-                        
                         await editInteractionResponse(interaction.token, {
-                            content: "", 
+                            content: "",
                             ...result.data
                         });
                     } catch (error) {
                         console.error("[ARTIST] Select Menu Background Error:", error);
-                        await editInteractionResponse(interaction.token, { 
+                        await editInteractionResponse(interaction.token, {
                             content: `❌ Could not load discography.`
                         });
                     }
@@ -328,7 +301,6 @@ export async function POST(req: Request) {
                 });
             }
             //#endregion
-            
         }
         //#endregion
 
@@ -354,7 +326,6 @@ export async function POST(req: Request) {
             }
             //#endregion
 
-
             //#region Cover
             if (customId.startsWith('cov_')) {
                 return handleCoverButtonInteraction(buttonInteraction);
@@ -362,23 +333,21 @@ export async function POST(req: Request) {
             //#endregion
 
             //#region Counter
-            if (customId.startsWith('countdown_')) { 
+            if (customId.startsWith('countdown_')) {
                 return handleCountdownInteraction(buttonInteraction);
             }
             //#endregion
-        
+
             //#region View Artist Button (From Album Embed)
             if (customId.startsWith('view_artist:')) {
-                // Extract the numeric album ID from the custom ID
                 const albumId = parseInt(customId.split(':')[1], 10);
-                
+
                 waitUntil((async () => {
                     try {
-                        // Retrieve the album to get the exact, un-truncated artist name
                         const album = await getAlbumById(albumId);
-                        
+
                         if (!album) {
-                            await editInteractionResponse(interaction.token, { 
+                            await editInteractionResponse(interaction.token, {
                                 content: `❌ Could not find the original album to retrieve the artist.`
                             });
                             return;
@@ -386,16 +355,15 @@ export async function POST(req: Request) {
 
                         const artistName = album.artistName as string;
                         console.log(`[ARTIST] Loading discography for: ${artistName} (from album ID ${albumId})`);
-                        
+
                         const result = await renderArtistEmbed(artistName);
-                        
                         await editInteractionResponse(interaction.token, {
-                            content: "", 
+                            content: "",
                             ...result.data
                         });
                     } catch (error) {
                         console.error("[ARTIST] Button Background Error:", error);
-                        await editInteractionResponse(interaction.token, { 
+                        await editInteractionResponse(interaction.token, {
                             content: `❌ Could not load the discography.`
                         });
                     }
@@ -410,11 +378,10 @@ export async function POST(req: Request) {
                     }
                 });
             }
-            //#endregion 
-
+            //#endregion
         }
         //#endregion
-        
+
         return new NextResponse('Unhandled component interaction', { status: 400 });
     }
     //#endregion

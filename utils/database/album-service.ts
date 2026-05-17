@@ -292,6 +292,7 @@ export async function getTopAlbums(options: {
 
     let genreCTE = '';
     let genreJoin = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args: any[] = [];
 
     if (genre) {
@@ -351,6 +352,7 @@ export async function getTopAlbums(options: {
 
     args.push(globalAvg, minRatings, limit, offset);
     const result = await db.execute({ sql, args });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any[];
 }
 
@@ -376,6 +378,7 @@ export async function getDonorAlbums(options: {
 
     let genreCTE = '';
     let genreJoin = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args: any[] =[];
 
     if (genre) {
@@ -436,6 +439,7 @@ export async function getDonorAlbums(options: {
     args.push(globalAvg, minRatingsTarget, limit, offset);
 
     const result = await db.execute({ sql, args });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return result.rows as any;
 }
 

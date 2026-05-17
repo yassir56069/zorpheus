@@ -204,8 +204,9 @@ export async function getTopUnratedAlbums(userId: string, options: {
     let genreCTE = '';
     let genreJoin = '';
     
+    // 1. First param is userId for the UserRatedAlbums CTE
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const args: any[] = [];
+    const args: any[] = [userId];
 
     if (genre) {
         genreCTE = `
@@ -219,6 +220,7 @@ export async function getTopUnratedAlbums(userId: string, options: {
         ),
         `;
         genreJoin = `JOIN ValidGenreAlbums vga ON ca.canonical_slug = vga.canonical_slug`;
+        // 2. Second param is the genre (if applicable)
         args.push(genre.toLowerCase());
     }
 
@@ -227,6 +229,12 @@ export async function getTopUnratedAlbums(userId: string, options: {
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM albums a
             LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        UserRatedAlbums AS (
+            SELECT DISTINCT ca.canonical_slug
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            WHERE r.userId = ?
         ),
         ${genreCTE}
         CombinedRatings AS MATERIALIZED (
@@ -268,17 +276,14 @@ export async function getTopUnratedAlbums(userId: string, options: {
             r.serverRank
         FROM RankedAlbums r
         JOIN albums a ON r.albumId = a.slug
-        WHERE NOT EXISTS (
-            SELECT 1 FROM ratings ur
-            JOIN CanonicalAlbums ca_ur ON ur.albumId = ca_ur.original_slug
-            WHERE ur.userId = ? AND ca_ur.canonical_slug = r.albumId
-        )
+        LEFT JOIN UserRatedAlbums ura ON r.albumId = ura.canonical_slug
+        WHERE ura.canonical_slug IS NULL
         ORDER BY r.serverRank ASC
         LIMIT ? OFFSET ?
     `;
 
-    // Push args in the exact order they appear in the query
-    args.push(globalAvg, minRatings, userId, limit, offset);
+    // 3. Push remaining arguments in order
+    args.push(globalAvg, minRatings, limit, offset);
     
     const result = await db.execute({ sql, args });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

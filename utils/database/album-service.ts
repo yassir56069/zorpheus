@@ -178,6 +178,115 @@ export async function searchUserRatings(userId: string, query: string): Promise<
 
 //#endregion
 
+
+//#region  User Rating Server Chart
+/**
+ * Retrieves the top rated albums on the server that a specific user HAS NOT rated yet.
+ * Retains the actual global/server rank of the album in the returned data.
+ */
+export async function getTopUnratedAlbums(userId: string, options: {
+    page?: number;
+    limit?: number;
+    days?: number;
+    genre?: string;
+}) {
+    const { page = 1, limit = 20, days, genre } = options;
+    const offset = (page - 1) * limit;
+    
+    // Fetch cached global average once per request
+    const globalAvg = await getGlobalAverage(); 
+
+    const dateFilter = days 
+        ? `AND r.createdAt >= datetime('now', '-${days} days')` 
+        : '';
+
+    const minRatings = genre ? 3 : MIN_RATINGS_TO_RANK;
+
+    let genreCTE = '';
+    let genreJoin = '';
+    
+    // The first argument is the userId for the UserRatedAlbums CTE
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const args: any[] = [userId];
+
+    if (genre) {
+        genreCTE = `
+        ValidGenreAlbums AS (
+            SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+            JOIN album_genres ag ON ag.albumId = a.slug
+            JOIN genres g ON ag.genreId = g.genreId
+            WHERE g.genreName = ?
+        ),
+        `;
+        genreJoin = `JOIN ValidGenreAlbums vga ON ca.canonical_slug = vga.canonical_slug`;
+        args.push(genre.toLowerCase());
+    }
+
+    const sql = `
+        WITH CanonicalAlbums AS (
+            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+            FROM albums a
+            LEFT JOIN albums c ON a.canonicalId = c.id
+        ),
+        UserRatedAlbums AS (
+            SELECT DISTINCT ca.canonical_slug
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            WHERE r.userId = ?
+        ),
+        ${genreCTE}
+        CombinedRatings AS MATERIALIZED (
+            SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
+            FROM ratings r
+            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+            ${genreJoin}
+            WHERE r.score > 0 ${dateFilter}
+            GROUP BY ca.canonical_slug, r.userId
+        ),
+        AlbumSums AS (
+            SELECT 
+                c.albumId, 
+                SUM(c.score) as sumScore, 
+                COUNT(c.userId) as ratingCount,
+                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
+                (SUM(c.score) + (${minRatings} * ?)) / (COUNT(c.userId) + ${minRatings}) as weightedScore
+            FROM CombinedRatings c
+            GROUP BY c.albumId
+        ),
+        RankedAlbums AS (
+            SELECT 
+                albumId,
+                ratingCount,
+                avgScore,
+                weightedScore,
+                RANK() OVER(ORDER BY weightedScore DESC, ratingCount DESC) as serverRank
+            FROM AlbumSums
+            WHERE ratingCount >= ?
+        )
+        SELECT 
+            a.name, 
+            a.artistName, 
+            a.slug,
+            a.coverArtUrl,
+            r.ratingCount,
+            r.avgScore,
+            r.weightedScore,
+            r.serverRank
+        FROM RankedAlbums r
+        JOIN albums a ON r.albumId = a.slug
+        WHERE r.albumId NOT IN (SELECT canonical_slug FROM UserRatedAlbums)
+        ORDER BY r.serverRank ASC
+        LIMIT ? OFFSET ?
+    `;
+
+    args.push(globalAvg, minRatings, limit, offset);
+    const result = await db.execute({ sql, args });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return result.rows as any[];
+}
+
 //#region Artists
 
 /**

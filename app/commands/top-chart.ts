@@ -6,6 +6,90 @@ import { createCanvas } from 'canvas';
 import { getTopAlbums } from '@/utils/database/album-service';
 import { mapLastFmTagToGenre } from '@/utils/database/genre-service';
 
+export async function handleUnratedTopChart(interaction: APIChatInputApplicationCommandInteraction) {
+    await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
+        method: 'POST',
+        body: JSON.stringify({ type: InteractionResponseType.DeferredChannelMessageWithSource }),
+        headers: { 'Content-Type': 'application/json' },
+    });
+
+    // Safely get user ID whether they are in a server or DMs
+    const userId = (interaction.member?.user?.id || interaction.user?.id) as string;
+    if (!userId) {
+        await updateResponse(interaction, { content: "⚠️ Could not identify your user ID." });
+        return new NextResponse(null, { status: 204 });
+    }
+
+    const options = (interaction.data.options || []);
+    
+    const rawPage = (options.find(opt => opt.name === 'page') as any)?.value;
+    const page = rawPage ? Number(rawPage) : 1;
+
+    const sizeOption = (options.find(opt => opt.name === 'size') as APIApplicationCommandInteractionDataStringOption)?.value || '5x5';
+    const period = (options.find(opt => opt.name === 'period') as any)?.value;
+    
+    const rawGenre = (options.find(opt => opt.name === 'genre') as APIApplicationCommandInteractionDataStringOption)?.value;
+    let genreToQuery: string | undefined;
+    let displayGenre = '';
+
+    if (rawGenre) {
+        const mappedGenre = mapLastFmTagToGenre(rawGenre);
+        if (!mappedGenre) {
+            await updateResponse(interaction, { content: `⚠️ I couldn't map \`${rawGenre}\` to a valid database genre. Please try a different genre.` });
+            return new NextResponse(null, { status: 204 });
+        }
+        genreToQuery = mappedGenre;
+        
+        displayGenre = mappedGenre
+            .split(' ')
+            .map(w => w.split('-').map(x => x.charAt(0).toUpperCase() + x.slice(1)).join('-'))
+            .join(' ');
+    }
+    
+    const [gridWidth, gridHeight] = sizeOption.split('x').map(Number);
+    const limit = gridWidth * gridHeight;
+
+    const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'year': 365 };
+    const days = period ? daysMap[period] : undefined;
+
+    try {
+        // Fetch Unrated Data passing the user ID!
+        const albums = await getTopUnratedAlbums(userId, { page, limit, days, genre: genreToQuery });
+
+        if (!albums || albums.length === 0) {
+            const genreText = displayGenre ? `**${displayGenre}** ` : '';
+            await updateResponse(interaction, { content: `No unrated ${genreText}albums found for you on page ${page}. You've heard them all!` });
+            return new NextResponse(null, { status: 204 });
+        }
+
+        // We can safely reuse the existing image generator
+        const chartBuffer = await createRankedChartImage(albums, gridWidth, gridHeight, page, limit);
+
+        const formData = new FormData();
+        formData.append('file', new Blob([chartBuffer]), 'unrated-chart.png');
+        
+        const baseTitle = displayGenre ? `Top Unrated ${displayGenre} Albums` : `Top Unrated Albums`;
+        const timePeriodTitle = period ? `${baseTitle} (${period})` : `${baseTitle} (All Time)`;
+        const pageText = page > 1 ? ` - Page ${page}` : '';
+        
+        formData.append('payload_json', JSON.stringify({ 
+            content: `### 🎧 ${timePeriodTitle}${pageText}\n*(Highly rated server albums you haven't reviewed yet!)*` 
+        }));
+
+        await fetch(`https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, {
+            method: 'PATCH',
+            body: formData,
+        });
+
+    } catch (error) {
+        console.error("Unrated Chart Error:", error);
+        await updateResponse(interaction, { content: "An error occurred while generating your chart. The grid might be too large." });
+    }
+
+    return new NextResponse(null, { status: 204 });
+}
+
+
 export async function handleTopChart(interaction: APIChatInputApplicationCommandInteraction) {
     // 1. Defer the interaction immediately
     await fetch(`https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`, {
@@ -112,7 +196,7 @@ async function createRankedChartImage(
         const left = col * imageSize;
         const top = row * imageSize;
 
-        const globalRank = ((page - 1) * limit) + index + 1;
+        const globalRank = album.serverRank || (((page - 1) * limit) + index + 1);
 
         let albumArt: Buffer;
         let isMissingArt = false;

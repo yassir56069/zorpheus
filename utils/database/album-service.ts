@@ -850,7 +850,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
 
     // Dynamic fallback
     const globalAvg = await getGlobalAverage();
-    const fallbackSql = `
+    const sql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM ratings r2
@@ -891,7 +891,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
-    const fallbackRes = await db.execute({ fallbackSql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
+    const fallbackRes = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (fallbackRes.rows.length === 0) return null;
     return fallbackRes.rows[0] as unknown as AlbumStats;
 }

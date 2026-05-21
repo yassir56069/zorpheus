@@ -114,7 +114,6 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
             });
 
             // 2. Perform the heavy calculation ONCE and REPLACE into the cache table.
-            // INSERT OR REPLACE avoids complex ON CONFLICT syntax issues in older SQLite drivers.
             await db.execute({
                 sql: `
                     WITH CanonicalAlbums AS (
@@ -154,7 +153,7 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
                 args: []
             });
 
-            // 3. Clean up any albums that dropped below the threshold (e.g., user deleted rating)
+            // 3. Clean up any albums that dropped below the threshold
             await db.execute({
                 sql: `DELETE FROM album_ranking_cache WHERE ratingCount < ?`,
                 args: [MIN_RATINGS_TO_RANK]
@@ -172,6 +171,86 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
     } catch (e) {
         console.error("Error refreshing album rankings cache:", e);
         return false;
+    }
+}
+
+/**
+ * Calculates ratings immediately for ONE specific album and instantly shifts the entire 
+ * leaderboard rankings. Very lightweight for DB usage, providing real-time UI updates!
+ */
+export async function updateSingleAlbumCache(slug: string) {
+    await ensureAlbumRankingsCache();
+    const globalAvg = await getGlobalAverage();
+
+    try {
+        await db.execute({
+            sql: `
+                WITH TargetAlbum AS (
+                    SELECT COALESCE(c.slug, a.slug) as canonical_slug
+                    FROM albums a
+                    LEFT JOIN albums c ON a.canonicalId = c.id
+                    WHERE a.slug = ?
+                    LIMIT 1
+                ),
+                AlbumRatings AS (
+                    SELECT r.userId, MAX(r.score) as score
+                    FROM ratings r
+                    JOIN albums a ON r.albumId = a.slug
+                    LEFT JOIN albums c ON a.canonicalId = c.id
+                    JOIN TargetAlbum t ON COALESCE(c.slug, a.slug) = t.canonical_slug
+                    WHERE r.score > 0
+                    GROUP BY r.userId
+                )
+                INSERT OR REPLACE INTO album_ranking_cache (slug, ratingCount, avgScore, weightedScore, rank)
+                SELECT 
+                    (SELECT canonical_slug FROM TargetAlbum),
+                    COUNT(userId),
+                    (CAST(SUM(score) AS FLOAT) / COUNT(userId)),
+                    (SUM(score) + (${MIN_RATINGS_TO_RANK} * ${globalAvg})) / (COUNT(userId) + ${MIN_RATINGS_TO_RANK}),
+                    COALESCE((SELECT rank FROM album_ranking_cache WHERE slug = (SELECT canonical_slug FROM TargetAlbum)), 999999)
+                FROM AlbumRatings
+                HAVING COUNT(userId) >= ${MIN_RATINGS_TO_RANK};
+            `,
+            args: [slug]
+        });
+
+        // Clean up if someone deleted a rating and dropped it below threshold
+        await db.execute({
+            sql: `DELETE FROM album_ranking_cache WHERE slug IN (
+                    SELECT COALESCE(c.slug, a.slug) FROM albums a LEFT JOIN albums c ON a.canonicalId = c.id WHERE a.slug = ?
+                  ) AND ratingCount < ?`,
+            args: [slug, MIN_RATINGS_TO_RANK]
+        });
+
+        // Lightning-fast re-rank of the entire table based on the new aggregated score!
+        await db.execute({
+            sql: `
+                UPDATE album_ranking_cache
+                SET rank = ReRanked.newRank
+                FROM (
+                    SELECT slug, RANK() OVER(ORDER BY weightedScore DESC, ratingCount DESC) as newRank
+                    FROM album_ranking_cache
+                ) AS ReRanked
+                WHERE album_ranking_cache.slug = ReRanked.slug;
+            `,
+            args: []
+        });
+    } catch (e) {
+        console.error("[CACHE] Error updating single album cache:", e);
+    }
+}
+
+/**
+ * Triggers a full rebuild the next time rankings are queried.
+ */
+export async function invalidateAlbumRankingsCache() {
+    try {
+        await db.execute({
+            sql: `UPDATE system_stats SET updatedAt = '1970-01-01' WHERE key = 'album_rankings_cache'`,
+            args: []
+        });
+    } catch (e) {
+        console.error("[CACHE] Error invalidating album cache:", e);
     }
 }
 
@@ -842,7 +921,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         `;
         const result = await db.execute({ sql, args:[slug, slug, slug + '%'] });
         
-        // If we found it, return it. If cache failed but didn't throw error, we fallback.
+        // If we found it and it's ranked, return it. Unranked albums fall through gracefully.
         if (result.rows.length > 0 && result.rows[0].rank != null) {
             return result.rows[0] as unknown as AlbumStats;
         }
@@ -850,7 +929,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
 
     // Dynamic fallback
     const globalAvg = await getGlobalAverage();
-    const sql = `
+    const fallbackSql = `
         WITH CanonicalAlbums AS (
             SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
             FROM ratings r2
@@ -891,7 +970,7 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
         LEFT JOIN AlbumSums s ON a.slug = s.albumId
         LEFT JOIN RankedAlbums r ON a.slug = r.albumId
     `;
-    const fallbackRes = await db.execute({ sql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
+    const fallbackRes = await db.execute({ sql: fallbackSql, args:[MIN_RATINGS_TO_RANK, slug, slug, slug + '%'] });
     if (fallbackRes.rows.length === 0) return null;
     return fallbackRes.rows[0] as unknown as AlbumStats;
 }

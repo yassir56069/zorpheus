@@ -845,7 +845,14 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
                 SELECT COALESCE(c.slug, a.slug) as target_slug
                 FROM albums a
                 LEFT JOIN albums c ON a.canonicalId = c.id
-                WHERE a.slug = ? OR (LENGTH(?) >= 95 AND a.slug LIKE ?)
+                WHERE a.slug = ?
+            
+                UNION 
+            
+                SELECT COALESCE(c.slug, a.slug) as target_slug
+                FROM albums a
+                LEFT JOIN albums c ON a.canonicalId = c.id
+                WHERE LENGTH(?) >= 95 AND a.slug LIKE ?
                 LIMIT 1
             )
             SELECT 

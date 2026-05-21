@@ -1,5 +1,5 @@
 import { db } from '@/utils/db';
-import { generateSlug, updateSingleAlbumCache, invalidateAlbumRankingsCache } from './album-service';
+import { generateSlug, invalidateCaches } from './album-service';
 import { recordFeaturedRating } from './feature-service';
 
 /**
@@ -19,12 +19,14 @@ export async function upsertRating(userId: string, albumId: string, score: numbe
         args: [userId, albumId, score]
     });
 
-    // Update the cache instantly so the frontend UI re-renders with the exact new stats/ranking!
-    await updateSingleAlbumCache(albumId).catch(e => 
-        console.error('[RATINGS] Target cache update failed:', e)
+    // Instantly invalidate the cache! The very next command run will trigger 
+    // a clean, full database recalculation so everything is perfectly up to date.
+    await invalidateCaches().catch(e => 
+        console.error('[RATINGS] Cache invalidation failed:', e)
     );
 
     // Fire-and-forget: award feature points if this album is currently featured.
+    // recordFeaturedRating is a no-op when isFeatured !== 1.
     recordFeaturedRating(userId, albumId, score).catch(e =>
         console.error('[RATINGS] Feature point award failed:', e)
     );
@@ -78,9 +80,8 @@ export async function batchImportRatings(userId: string, records: Array<{
         await db.batch(statements, "write");
     }
 
-    // Since many albums were imported, just invalidate the cache completely. 
-    // This allows it to rebuild gracefully the next time an album command is called.
-    await invalidateAlbumRankingsCache();
+    // After a massive bulk import is entirely finished, invalidate once.
+    await invalidateCaches();
 }
 
 //#region Profile Display

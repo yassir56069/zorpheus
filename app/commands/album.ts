@@ -324,7 +324,7 @@ export async function renderAlbumEmbed(slug: string) {
     );
 
     // Determine feature button state
-    const isFeatureEligible = ratingCount === FEATURE_ELIGIBLE_MAX_RATINGS && isFeatured === 0;
+    const isFeatureEligible = ratingCount >= FEATURE_ELIGIBLE_MAX_RATINGS  && ratingCount < MIN_RATINGS_TO_RANK && isFeatured === 0;
     const isCurrentlyFeatured = isFeatured === 1;
     const wasEverFeatured = isFeatured === 2;
     const isAlreadyRanked = ratingCount >= MIN_RATINGS_TO_RANK;

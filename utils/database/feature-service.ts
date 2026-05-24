@@ -2,7 +2,7 @@ import { db } from '@/utils/db';
 import { MIN_RATINGS_TO_RANK } from './album-service';
 
 // An album is eligible to be featured if it has exactly MIN_RATINGS_TO_RANK - 1 ratings
-export const FEATURE_ELIGIBLE_MAX_RATINGS = MIN_RATINGS_TO_RANK - 1; // 4
+export const FEATURE_ELIGIBLE_MAX_RATINGS = MIN_RATINGS_TO_RANK - 2; // 3
 export const FEATURE_DURATION_DAYS = 7;
 
 export interface FeatureQueueEntry {

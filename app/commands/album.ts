@@ -314,7 +314,8 @@ export async function renderAlbumEmbed(slug: string) {
         album.avgScore, 
         album.weightedScore ?? null, 
         album.rank, 
-        album.ratingCount || 0
+        album.ratingCount || 0,
+        featuredDate 
     );
 
     // Determine feature button state
@@ -329,7 +330,7 @@ export async function renderAlbumEmbed(slug: string) {
             type: 2, // Button
             style: 2, // Secondary (grey)
             custom_id: `view_artist:${album.id}`,
-            label: `${isFeatured > 0 ? '📀 ' : ''}${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
+            label: `${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
             emoji: { name: '👨‍🎤' }
         }
     ];
@@ -371,7 +372,7 @@ export async function renderAlbumEmbed(slug: string) {
     return {
         data: {
             embeds: [{
-                title: `${album.artistName} - ${album.name}`,
+                title: `${isFeatured > 0 ? '📀 ' : ''}${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
                              statsBlock +

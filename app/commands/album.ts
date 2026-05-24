@@ -68,7 +68,7 @@ function formatAlbumStats(
     weightedScore: number | null, 
     rank: number | null, 
     totalRatings: number,
-    featuredDate?: string | null // <-- Added parameter
+    featureScore?: number | null // <-- Now taking featureScore
 ): string {
     const isRanked = rank !== null;
     
@@ -93,14 +93,14 @@ function formatAlbumStats(
         else if (rank <= 50) rankColor = "\u001b[1;33m";
     }
 
-    // Include the new line conditionally if the album has been/is featured
-    const featuredLine = featuredDate 
-        ? `\n\u001b[2;34m 💽 Featured On   : \u001b[1;36m${featuredDate}\u001b[0m` 
+    // Insert Feature Score line right under Score if it exists
+    const featureScoreLine = featureScore !== null && featureScore !== undefined
+        ? `\n\u001b[2;34m 🌟 Feature Score : \u001b[1;36m${featureScore}\u001b[0m` 
         : "";
 
     return `\`\`\`ansi
-\u001b[2;34m ⭐ Score         : ${scoreColor}${scoreStr}\u001b[0m
-\u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m${featuredLine}
+\u001b[2;34m ⭐ Score         : ${scoreColor}${scoreStr}\u001b[0m${featureScoreLine}
+\u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m
 \u001b[2;34m 👥 Total Ratings : \u001b[1;34m${totalRatings}\u001b[0m
 \`\`\``;
 }
@@ -301,12 +301,17 @@ export async function renderAlbumEmbed(slug: string) {
     const ratingCount = album.ratingCount || 0;
     const isFeatured = await getAlbumFeaturedState(album.slug);
     
-    // Check if album is featured (1 or 2) and fetch its start date
-    let featuredDate: string | null = null;
+    // Check if album is featured (1 or 2) and fetch its stats
+    let featureScore: number | null = null;
+    let featuredDateDisplay = '';
+    
     if (isFeatured > 0) {
         const featureInfo = await getAlbumFeatureInfo(album.slug);
         if (featureInfo) {
-            featuredDate = featureInfo.startDate; 
+            featureScore = featureInfo.featureScore;
+            // Parse the ISO date (YYYY-MM-DD) as UTC, then get Unix timestamp for Discord
+            const unixTimestamp = Math.floor(new Date(featureInfo.startDate + 'T00:00:00.000Z').getTime() / 1000);
+            featuredDateDisplay = `💽 **Featured On:** <t:${unixTimestamp}:D>\n\n`; 
         }
     }
 
@@ -315,7 +320,7 @@ export async function renderAlbumEmbed(slug: string) {
         album.weightedScore ?? null, 
         album.rank, 
         album.ratingCount || 0,
-        featuredDate 
+        featureScore 
     );
 
     // Determine feature button state
@@ -375,6 +380,7 @@ export async function renderAlbumEmbed(slug: string) {
                 title: `${isFeatured > 0 ? '📀 ' : ''}${album.artistName} - ${album.name}`,
                 description: `**Release Year:** ${album.releaseYear || 'Unknown'}\n\n` + 
                              genresDisplay +
+                             featuredDateDisplay + 
                              statsBlock +
                              `\n**Community Ratings:**\n${ratingsDisplay}`,
                 color: isCurrentlyFeatured ? 0xf5a623 : 0x3498db, // Gold if featured, blue otherwise

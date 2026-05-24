@@ -42,6 +42,16 @@ export async function getAlbumFeatureInfo(albumSlug: string): Promise<FeaturedAl
     return res.rows[0] as unknown as FeaturedAlbumInfo;
 }
 
+export async function getAlbumFeaturedState(albumSlug: string): Promise<number> {
+    const res = await db.execute({
+        sql: `SELECT isFeatured FROM albums WHERE slug = ?`,
+        args: [albumSlug]
+    });
+
+    if (res.rows.length === 0) return 0;
+    return (res.rows[0].isFeatured as number) ?? 0;
+}
+
 
 // ---------------------------------------------------------------------------
 // Schema helpers (run once at boot or via migration)

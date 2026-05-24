@@ -20,7 +20,7 @@ import {
 } from '@/utils/database/album-service';
 import { getUserLastFM } from '@/utils/database/user-service';
 import { getMergedAlbumGenres } from '@/utils/database/genre-service';
-import { FEATURE_ELIGIBLE_MAX_RATINGS, getAlbumFeatureInfo } from '@/utils/database/feature-service';
+import { FEATURE_ELIGIBLE_MAX_RATINGS, getAlbumFeatureInfo, getAlbumFeaturedState  } from '@/utils/database/feature-service';
 
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
@@ -299,7 +299,7 @@ export async function renderAlbumEmbed(slug: string) {
 
     // Determine feature state early so we can use it for stats
     const ratingCount = album.ratingCount || 0;
-    const isFeatured = (album as any).isFeatured as number ?? 0;
+    const isFeatured = await getAlbumFeaturedState(album.slug);
     
     // Check if album is featured (1 or 2) and fetch its start date
     let featuredDate: string | null = null;

@@ -25,6 +25,24 @@ export interface FeaturePoints {
     points: number;
 }
 
+/**
+ * Returns the feature information for a specific album slug.
+ */
+export async function getAlbumFeatureInfo(albumSlug: string): Promise<FeaturedAlbumInfo | null> {
+    const res = await db.execute({
+        sql: `
+            SELECT albumSlug, score as featureScore, ratingCount, startDate, endDate
+            FROM featured_album_scores
+            WHERE albumSlug = ?
+        `,
+        args: [albumSlug]
+    });
+
+    if (res.rows.length === 0) return null;
+    return res.rows[0] as unknown as FeaturedAlbumInfo;
+}
+
+
 // ---------------------------------------------------------------------------
 // Schema helpers (run once at boot or via migration)
 // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ import {
 } from '@/utils/database/album-service';
 import { getUserLastFM } from '@/utils/database/user-service';
 import { getMergedAlbumGenres } from '@/utils/database/genre-service';
-import { FEATURE_ELIGIBLE_MAX_RATINGS } from '@/utils/database/feature-service';
+import { FEATURE_ELIGIBLE_MAX_RATINGS, getAlbumFeatureInfo } from '@/utils/database/feature-service';
 
 
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
@@ -67,7 +67,8 @@ function formatAlbumStats(
     avgScore: number | null, 
     weightedScore: number | null, 
     rank: number | null, 
-    totalRatings: number
+    totalRatings: number,
+    featuredDate?: string | null // <-- Added parameter
 ): string {
     const isRanked = rank !== null;
     
@@ -92,9 +93,14 @@ function formatAlbumStats(
         else if (rank <= 50) rankColor = "\u001b[1;33m";
     }
 
+    // Include the new line conditionally if the album has been/is featured
+    const featuredLine = featuredDate 
+        ? `\n\u001b[2;34m 💽 Featured On   : \u001b[1;36m${featuredDate}\u001b[0m` 
+        : "";
+
     return `\`\`\`ansi
 \u001b[2;34m ⭐ Score         : ${scoreColor}${scoreStr}\u001b[0m
-\u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m
+\u001b[2;34m 🏆 Overall Rank  : ${rankColor}${rankDisplay}\u001b[0m${featuredLine}
 \u001b[2;34m 👥 Total Ratings : \u001b[1;34m${totalRatings}\u001b[0m
 \`\`\``;
 }
@@ -291,6 +297,19 @@ export async function renderAlbumEmbed(slug: string) {
         ? `🏷️ **Genres:** ${genres.map(g => `\`${titleCase(g)}\``).join(', ')}\n\n`
         : '';
 
+    // Determine feature state early so we can use it for stats
+    const ratingCount = album.ratingCount || 0;
+    const isFeatured = (album as any).isFeatured as number ?? 0;
+    
+    // Check if album is featured (1 or 2) and fetch its start date
+    let featuredDate: string | null = null;
+    if (isFeatured > 0) {
+        const featureInfo = await getAlbumFeatureInfo(album.slug);
+        if (featureInfo) {
+            featuredDate = featureInfo.startDate; 
+        }
+    }
+
     const statsBlock = formatAlbumStats(
         album.avgScore, 
         album.weightedScore ?? null, 
@@ -299,8 +318,6 @@ export async function renderAlbumEmbed(slug: string) {
     );
 
     // Determine feature button state
-    const ratingCount = album.ratingCount || 0;
-    const isFeatured = (album as any).isFeatured as number ?? 0;
     const isFeatureEligible = ratingCount === FEATURE_ELIGIBLE_MAX_RATINGS && isFeatured === 0;
     const isCurrentlyFeatured = isFeatured === 1;
     const wasEverFeatured = isFeatured === 2;
@@ -312,7 +329,7 @@ export async function renderAlbumEmbed(slug: string) {
             type: 2, // Button
             style: 2, // Secondary (grey)
             custom_id: `view_artist:${album.id}`,
-            label: `${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
+            label: `${isFeatured > 0 ? '📀 ' : ''}${album.artistName} (${albumCount} Album${albumCount !== 1 ? 's' : ''})`,
             emoji: { name: '👨‍🎤' }
         }
     ];

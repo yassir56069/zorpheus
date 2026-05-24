@@ -327,65 +327,102 @@ export async function tickFeaturedAlbum(): Promise<{ activated: string | null; e
 // ---------------------------------------------------------------------------
 
 /**
- * Awards feature points to a user and adds to the album's feature score.
- * Call this after a rating is submitted for an album where isFeatured = 1.
+ * Awards feature points to a user and recalculates the album's feature score.
+ * Call this after a rating is submitted for an album where isFeatured is 1 or 2.
  *
- * User earns 1 point; album score increases by the rating value.
- * Idempotent per (userId, albumSlug) — subsequent ratings update the score delta.
+ * User earns 2 points if rated during the week (isFeatured = 1), and 1 point if after.
+ * Score is recalculated to avoid summing inflation when scores are updated.
  */
 export async function recordFeaturedRating(
     userId: string,
     albumSlug: string,
-    score: number
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    score: number // Kept for backwards signature compatibility
 ): Promise<{ userPoints: number; albumScore: number }> {
-    // Check album is currently featured
+    // Check album's featured state (1 = currently featured, 2 = previously featured)
     const albumRes = await db.execute({
         sql: `SELECT isFeatured FROM albums WHERE slug = ?`,
         args: [albumSlug]
     });
 
-    if (albumRes.rows.length === 0 || (albumRes.rows[0].isFeatured as number) !== 1) {
-        // Not currently featured — no points awarded
+    if (albumRes.rows.length === 0) {
         return { userPoints: 0, albumScore: 0 };
     }
 
-    // Upsert user points (1 point per album, regardless of how many times they rate)
+    const isFeatured = albumRes.rows[0].isFeatured as number;
+    if (!isFeatured || isFeatured === 0) {
+        // Never featured — no points awarded, no score tracked
+        return { userPoints: 0, albumScore: 0 };
+    }
+
+    const pointsToAward = isFeatured === 1 ? 2 : 1;
+
+    // Upsert user points 
+    // CASE ensures that if a user already earned 2 points during the feature week, 
+    // a later re-rate (where excluded points = 1) will not downgrade their score.
     await db.execute({
         sql: `
             INSERT INTO feature_points (userId, albumSlug, points, awardedAt)
-            VALUES (?, ?, 1, CURRENT_TIMESTAMP)
-            ON CONFLICT(userId, albumSlug) DO NOTHING
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(userId, albumSlug) DO UPDATE SET 
+                points = CASE WHEN excluded.points > feature_points.points THEN excluded.points ELSE feature_points.points END
         `,
-        args: [userId, albumSlug]
+        args: [userId, albumSlug, pointsToAward]
     });
 
-    // Update album score — we store the latest score contribution per user
-    // by keeping a delta approach in featured_album_scores
-    await db.execute({
+    // Recalculate Album Score exactly as the canonical album-service computes it.
+    // This solves the bug where re-rates were adding points continuously instead of updating.
+    const recalcRes = await db.execute({
         sql: `
-            UPDATE featured_album_scores
-            SET score = score + ?,
-                ratingCount = ratingCount + 1
-            WHERE albumSlug = ?
+            WITH CanonicalAlbums AS (
+                SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
+                FROM albums a
+                LEFT JOIN albums c ON a.canonicalId = c.id
+            ),
+            TargetCanonical AS (
+                SELECT canonical_slug 
+                FROM CanonicalAlbums 
+                WHERE original_slug = ?
+                LIMIT 1
+            ),
+            CombinedRatings AS (
+                SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
+                FROM ratings r
+                JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
+                JOIN TargetCanonical tc ON ca.canonical_slug = tc.canonical_slug
+                WHERE r.score > 0
+                GROUP BY r.userId
+            )
+            SELECT 
+                COALESCE(SUM(score), 0) as totalScore, 
+                COUNT(userId) as ratingCount
+            FROM CombinedRatings
         `,
-        args: [score, albumSlug]
-    });
-
-    // Fetch updated totals for the response
-    const totals = await db.execute({
-        sql: `SELECT score, ratingCount FROM featured_album_scores WHERE albumSlug = ?`,
         args: [albumSlug]
     });
 
-    const albumScore = totals.rows.length > 0 ? (totals.rows[0].score as number) : 0;
+    const totalScore = (recalcRes.rows[0]?.totalScore as number) ?? 0;
+    const ratingCount = (recalcRes.rows[0]?.ratingCount as number) ?? 0;
 
+    // Persist the recalculated absolute totals back into the featured_album_scores table
+    await db.execute({
+        sql: `
+            UPDATE featured_album_scores
+            SET score = ?,
+                ratingCount = ?
+            WHERE albumSlug = ?
+        `,
+        args: [totalScore, ratingCount, albumSlug]
+    });
+
+    // Fetch updated totals for the response
     const pointsRes = await db.execute({
-        sql: `SELECT SUM(points) as total FROM feature_points WHERE userId = ?`,
+        sql: `SELECT COALESCE(SUM(points), 0) as total FROM feature_points WHERE userId = ?`,
         args: [userId]
     });
-    const userPoints = (pointsRes.rows[0]?.total as number) ?? 1;
+    const userPoints = (pointsRes.rows[0]?.total as number) ?? 0;
 
-    return { userPoints, albumScore };
+    return { userPoints, albumScore: totalScore };
 }
 
 // ---------------------------------------------------------------------------

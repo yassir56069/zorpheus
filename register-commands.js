@@ -82,7 +82,8 @@ const commands = [
   },
   {
     "name": "feature-queue",
-    "description": "📋 View the featured album nomination queue.",
+    "default_member_permissions": "8",
+    "description": "📋 [Admin] View the featured album nomination queue.",
   },
   {
     "name": "feature-points",

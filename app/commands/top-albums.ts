@@ -19,6 +19,92 @@ async function editInteractionResponse(token: string, data: any) {
     });
 }
 
+//#region Unrated Albums
+export async function handleListUnrated(
+    interaction: APIChatInputApplicationCommandInteraction, 
+    waitUntil: (promise: Promise<any>) => void
+) {
+    const options = interaction.data.options ?? [];
+    const page = Number((options.find(opt => opt.name === 'page') as any)?.value || 1);
+    const period = (options.find(opt => opt.name === 'period') as any)?.value;
+    const rawGenre = (options.find(opt => opt.name === 'genre') as any)?.value;
+    
+    const userId = (interaction.member?.user?.id || interaction.user?.id) as string;
+
+    const daysMap: Record<string, number> = { 'week': 7, 'month': 30, 'year': 365 };
+    const days = period ? daysMap[period] : undefined;
+
+    let genreToQuery: string | undefined;
+    let displayGenre = '';
+
+    if (rawGenre) {
+        const mappedGenre = mapLastFmTagToGenre(rawGenre);
+        if (!mappedGenre) {
+            waitUntil(editInteractionResponse(interaction.token, { 
+                content: `⚠️ I couldn't map \`${rawGenre}\` to a valid database genre.` 
+            }));
+            return NextResponse.json({ type: InteractionResponseType.DeferredChannelMessageWithSource });
+        }
+        genreToQuery = mappedGenre;
+        displayGenre = mappedGenre
+            .split(' ')
+            .map((w: string) => w.split('-').map((x: string) => x.charAt(0).toUpperCase() + x.slice(1)).join('-'))
+            .join(' ');
+    }
+
+    const runBackgroundTask = async () => {
+        try {
+            const limit = 20; 
+            // We use getTopUnratedAlbums, passing the calling user's ID
+            const albums = await getTopUnratedAlbums(userId, { page, limit, days, genre: genreToQuery });
+
+            if (!albums || albums.length === 0) {
+                const genreText = displayGenre ? `**${displayGenre}** ` : '';
+                await editInteractionResponse(interaction.token, { 
+                    content: `✅ You've rated all the highly ranked ${genreText}albums on page ${page}!` 
+                });
+                return;
+            }
+
+            const list = albums.map((a, i) => {
+                const rank = (page - 1) * limit + (i + 1);
+                // In getTopUnratedAlbums, the scores might be weightedScore or avgScore depending on your helper
+                const scoreValue = a.weightedScore || a.avgScore;
+                const score = (Number(scoreValue) / 2).toFixed(2);
+                
+                const artist = a.artistName?.substring(0, 40) || "Unknown Artist";
+                const name = a.name?.substring(0, 40) || "Unknown Album";
+                
+                return `**${rank}.** ${artist} - *${name}* • **${score}** ★ \`(${a.ratingCount})\``;
+            }).join('\n');
+
+            const baseTitle = displayGenre ? `Top Unrated ${displayGenre} Albums` : `Top Unrated Albums`;
+            const title = period ? `${baseTitle} (${period})` : `${baseTitle} (All Time)`;
+
+            await editInteractionResponse(interaction.token, {
+                content: "",
+                embeds: [{
+                    title: `📖 ${title}`,
+                    description: list + `\n\n-# *Highly rated server albums you haven't rated yet!*`,
+                    color: 0x9b59b6, // Purple theme to distinguish from Top Albums
+                    footer: { text: `Page ${page} • Based on server averages` }
+                }]
+            });
+        } catch (error) {
+            console.error("[LIST-UNRATED] Error:", error);
+            await editInteractionResponse(interaction.token, { content: "❌ Error fetching unrated list." });
+        }
+    };
+
+    waitUntil(runBackgroundTask());
+
+    return NextResponse.json({ 
+        type: InteractionResponseType.DeferredChannelMessageWithSource 
+    });
+}
+//#endregion    
+
+//#region Top Albums
 export async function handleTopAlbums(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     const options = interaction.data.options ??[];
     const page = Number((options.find(opt => opt.name === 'page') as any)?.value || 1);
@@ -102,7 +188,9 @@ export async function handleTopAlbums(interaction: APIChatInputApplicationComman
         type: InteractionResponseType.DeferredChannelMessageWithSource 
     });
 }
+//#endregion
 
+//#region Donor Albums
 export async function handleDonorAlbums(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {
     const options = interaction.data.options ??[];
     const page = Number((options.find(opt => opt.name === 'page') as any)?.value || 1);
@@ -186,3 +274,4 @@ export async function handleDonorAlbums(interaction: APIChatInputApplicationComm
         type: InteractionResponseType.DeferredChannelMessageWithSource 
     });
 }
+//#endregion

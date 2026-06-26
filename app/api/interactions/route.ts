@@ -37,7 +37,7 @@ import { enqueueAlbumForFeature } from '@/utils/database/feature-service';
 import { upsertRating } from '@/utils/database/ratings-service';
 import { getOrCreateAlbum } from '@/utils/database/album-service';
 import { waitUntil } from '@vercel/functions';
-import { handleDonorAlbums, handleTopAlbums } from '@/app/commands/top-albums';
+import { handleDonorAlbums, handleListUnrated, handleTopAlbums } from '@/app/commands/top-albums';
 import { handleTopChart,handleUnratedTopChart } from '@/app/commands/top-chart';
 import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assign-genre';
 import { handleRemoveGenre, handleRemoveGenreSelect } from '@/app/commands/remove-genre';
@@ -114,6 +114,8 @@ export async function POST(req: Request) {
                 return handleArtistSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'user-ratings':
                 return handleUserRatingsSearch(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'list-unrated': 
+                return handleListUnrated(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'top-albums':
                 return handleTopAlbums(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'donor-albums':

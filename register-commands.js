@@ -169,6 +169,38 @@ const commands = [
   },
   //#endregion
 
+  //#region List Unrated
+  {
+    "name": "list-unrated",
+    "description": "View a list of highly rated albums you haven't rated yet.",
+    "options": [
+      {
+        "type": 4,
+        "name": "page",
+        "description": "The page number to view",
+        "required": false
+      },
+      {
+        "type": 3,
+        "name": "period",
+        "description": "Filter by time period",
+        "required": false,
+        "choices": [
+          { "name": "Last 7 Days", "value": "week" },
+          { "name": "Last 30 Days", "value": "month" },
+          { "name": "Last Year", "value": "year" }
+        ]
+      },
+      {
+        "name": "genre",
+        "description": "Filter by a specific genre.",
+        "type": 3,
+        "required": false
+      }
+    ]
+  },
+  //#endregion
+
   //#region Top Albums
   {
     "name": "top-albums",

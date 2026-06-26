@@ -40,6 +40,7 @@ import { waitUntil } from '@vercel/functions';
 import { handleDonorAlbums, handleTopAlbums } from '@/app/commands/top-albums';
 import { handleTopChart,handleUnratedTopChart } from '@/app/commands/top-chart';
 import { handleAssignGenre, handleAssignGenreSelect } from '@/app/commands/assign-genre';
+import { handleRemoveGenre, handleRemoveGenreSelect } from '@/app/commands/remove-genre';
 import { handleAlbumHighlight } from '@/app/commands/aotd';
 import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
 import { getAlbumById } from '@/utils/database/album-service';
@@ -87,6 +88,8 @@ export async function POST(req: Request) {
                 return handleImport(interaction as APIChatInputApplicationCommandInteraction);
             case 'assign-genre':
                 return handleAssignGenre(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'remove-genre':
+                return handleRemoveGenre(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'canonize-album':
                 return handleCanonizeAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'canonize-album-id':
@@ -158,6 +161,12 @@ export async function POST(req: Request) {
             //#region Assign Genre
             if (customId.startsWith('assign_genre_select_')) {
                 return await handleAssignGenreSelect(selectInteraction, waitUntil);
+            }
+            //#endregion
+
+            //#region Remove Genre
+            if (customId.startsWith('remove_genre_select_')) {
+                return await handleRemoveGenreSelect(selectInteraction, waitUntil);
             }
             //#endregion
 

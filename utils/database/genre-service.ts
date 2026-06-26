@@ -51,6 +51,7 @@ export async function getMergedAlbumGenres(slug: string): Promise<string[]> {
 
 //#region Add Genres
 
+
 /**
  * Manually links a genre to an album based on an album's integer ID.
  */
@@ -102,6 +103,51 @@ export async function addManualAlbumGenre(albumId: number, genreName: string, us
         return true;
     } catch (error) {
         console.error(`[DB Error] Failed to link manual genre ${genreName} to album ID ${albumId}:`, error);
+        return false;
+    }
+}
+
+//#endregion
+
+//#region Remove Genres
+
+/**
+ * Manually removes a genre from an album based on an album's integer ID.
+ */
+export async function removeAlbumGenre(albumId: number, genreName: string) {
+    const normalizedGenre = genreName.toLowerCase();
+
+    try {
+        // Find the album slug
+        const albumRes = await db.execute({
+            sql: `SELECT slug FROM albums WHERE id = ?`,
+            args: [albumId]
+        });
+
+        if (albumRes.rows.length === 0) return false;
+        
+        const albumSlug = albumRes.rows[0].slug as string;
+
+        // Find the genre ID
+        const genreRes = await db.execute({
+            sql: `SELECT genreId FROM genres WHERE genreName = ?`,
+            args: [normalizedGenre]
+        });
+
+        if (genreRes.rows.length === 0) return false; // Genre doesn't exist in DB at all
+        
+        const genreId = genreRes.rows[0].genreId as number;
+
+        // Delete the relationship
+        const deleteRes = await db.execute({
+            sql: `DELETE FROM album_genres WHERE albumId = ? AND genreId = ?`,
+            args: [albumSlug, genreId]
+        });
+        
+        // rowsAffected lets us know if it actually deleted anything
+        return deleteRes.rowsAffected > 0;
+    } catch (error) {
+        console.error(`[DB Error] Failed to remove genre ${genreName} from album ID ${albumId}:`, error);
         return false;
     }
 }

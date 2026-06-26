@@ -27,7 +27,7 @@ const commands = [
   //#region Admin: Canonize albums
   {
     "name": "canonize-album",
-    "description": "[Admin] Link a duplicate album slug to the main canonical slug.",
+    "description": "[BUTLER] Link a duplicate album slug to the main canonical slug.",
     "default_member_permissions": "8",
     "options": [
       {
@@ -327,6 +327,22 @@ const commands = [
   {
     "name": "assign-genre",
     "description": "Manually tag an album with a genre from the database.",
+    "options": [
+      {
+        "name": "album-id",
+        "description": "The ID of the album (found at the bottom of the /album embed).",
+        "type": 3,
+        "required": false
+      }
+    ]
+  },
+  //#endregion
+
+  //#region Remove Genre (RESTRICTED PERMSSION)
+  {
+    "name": "remove-genre",
+    "description": "[BUTLER] Manually remove a genre from an album.",
+    "default_member_permissions": "8",
     "options": [
       {
         "name": "album-id",

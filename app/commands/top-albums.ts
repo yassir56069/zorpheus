@@ -4,7 +4,7 @@ import {
     InteractionResponseType,
     APIChatInputApplicationCommandInteraction,
 } from 'discord-api-types/v10';
-import { getTopAlbums, getDonorAlbums, MIN_RATINGS_TO_RANK } from '@/utils/database/album-service';
+import { getTopAlbums, getDonorAlbums, MIN_RATINGS_TO_RANK, getTopUnratedAlbums } from '@/utils/database/album-service';
 import { mapLastFmTagToGenre } from '@/utils/database/genre-service';
 
 const APP_ID = process.env.DISCORD_APPLICATION_ID;

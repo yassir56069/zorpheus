@@ -26,8 +26,9 @@ export async function handleInvalidateCache(interaction: APIChatInputApplication
     */
 
     // 2. Fallback checking if the user has administrator permissions on Discord
-    const permissions = BigInt(interaction.member?.permissions || '0');
-    const isAdmin = (permissions & 8n) === 8n; // 8n is ADMINISTRATOR
+    // Using parseInt to avoid BigInt literal compilation issues on Vercel
+    const permissions = parseInt(interaction.member?.permissions || '0', 10);
+    const isAdmin = (permissions & 8) === 8; // 8 is the ADMINISTRATOR permission bit
 
     if (!isAdmin) {
         return NextResponse.json({

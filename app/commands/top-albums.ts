@@ -75,7 +75,10 @@ export async function handleListUnrated(
                 const artist = a.artistName?.substring(0, 40) || "Unknown Artist";
                 const name = a.name?.substring(0, 40) || "Unknown Album";
                 
-                return `**${rank}.** ${artist} - *${name}* • **${score}** ★ \`(${a.ratingCount})\``;
+                // Retrieve the server ranking fetched from the database
+                const serverRankStr = a.serverRank ? ` \`[#${a.serverRank}]\`` : '';
+                
+                return `**${rank}.** ${artist} - *${name}*${serverRankStr} • **${score}** ★ \`(${a.ratingCount})\``;
             }).join('\n');
 
             const baseTitle = displayGenre ? `Top Unrated ${displayGenre} Albums` : `Top Unrated Albums`;
@@ -102,7 +105,7 @@ export async function handleListUnrated(
         type: InteractionResponseType.DeferredChannelMessageWithSource 
     });
 }
-//#endregion    
+//#endregion
 
 //#region Top Albums
 export async function handleTopAlbums(interaction: APIChatInputApplicationCommandInteraction, waitUntil: (promise: Promise<any>) => void) {

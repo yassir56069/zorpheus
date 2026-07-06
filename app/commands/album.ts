@@ -289,8 +289,15 @@ export async function renderAlbumEmbed(slug: string) {
     const exactArtist = artistHits.find(h => h.artistName.toLowerCase() === album.artistName.toLowerCase()) || artistHits[0];
     const albumCount = exactArtist ? exactArtist.albumCount : 1;
     
-    const ratingsDisplay = ratings.length > 0 
-        ? ratings.map(r => `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`).join('\n')
+const ratingsDisplay = ratings.length > 0 
+        ? ratings.map(r => {
+            // Check for archival rating (score of 0)
+            if (r.score === 0) {
+                return `<@${r.userId}>: **-.-**`;
+            }
+            // Standard rating display
+            return `<@${r.userId}>: **${(r.score / 2).toFixed(1)}** ${getStars(r.score)}`;
+        }).join('\n')
         : "No ratings yet.";
 
     const genresDisplay = genres.length > 0

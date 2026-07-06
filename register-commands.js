@@ -24,6 +24,14 @@ const commands = [
   //     ],
   // },
 
+  //#region Admin: Invalidate Cache
+  {
+    "name": "invalidate-cache",
+    "description": "[Admin] Force-invalidate the album rankings and global stats cache.",
+    "default_member_permissions": "8"
+  },
+  //#endregion
+
   //#region Admin: Canonize albums
   {
     "name": "canonize-album",
@@ -374,7 +382,6 @@ const commands = [
   {
     "name": "remove-genre",
     "description": "[BUTLER] Manually remove a genre from an album.",
-    "default_member_permissions": "8",
     "options": [
       {
         "name": "album-id",
@@ -592,53 +599,58 @@ const commands = [
   },
   //#endregion
 
-  //#region  DEPRECATED / UNUSED
-  {
-    name: 'league',
-    description: "Server artist league commands.",
-    options: [
-      {
-        name: 'find',
-        description: "Finds tracks in a Spotify playlist by the server's top artists.",
-        type: 1,
-        options: [
-          {
-            name: 'playlist',
-            description: 'The full URL of the Spotify playlist.',
-            type: 3, // STRING
-            required: true,
-          },
-        ]
-      },
-      {
-        name: 'banned',
-        description: "Displays the top 30 'banned' artists for the server league.",
-        type: 1,
-      }
-    ]
-  },
-  {
-    "name": "dev",
-    "description": "Developer-only commands for testing.",
-    "options": [
-      {
-        "name": "key",
-        "description": "The specific developer command to run",
-        "type": 3,
-        "required": true
-      },
-      {
-        "name": "value",
-        "description": "Optional value for the test command.",
-        "type": 3,
-        "required": false
-      }
-    ]
-  },
+  //#region Countdown
   {
     name: 'countdown',
     description: 'Starts a 5-second countdown.',
   },
+  //#endregion
+  
+
+  //#region  DEPRECATED / UNUSED
+  // {
+  //   name: 'league',
+  //   description: "Server artist league commands.",
+  //   options: [
+  //     {
+  //       name: 'find',
+  //       description: "Finds tracks in a Spotify playlist by the server's top artists.",
+  //       type: 1,
+  //       options: [
+  //         {
+  //           name: 'playlist',
+  //           description: 'The full URL of the Spotify playlist.',
+  //           type: 3, // STRING
+  //           required: true,
+  //         },
+  //       ]
+  //     },
+  //     {
+  //       name: 'banned',
+  //       description: "Displays the top 30 'banned' artists for the server league.",
+  //       type: 1,
+  //     }
+  //   ]
+  // },
+  // {
+  //   "name": "dev",
+  //   "description": "Developer-only commands for testing.",
+  //   "options": [
+  //     {
+  //       "name": "key",
+  //       "description": "The specific developer command to run",
+  //       "type": 3,
+  //       "required": true
+  //     },
+  //     {
+  //       "name": "value",
+  //       "description": "Optional value for the test command.",
+  //       "type": 3,
+  //       "required": false
+  //     }
+  //   ]
+  // },
+
   //#endregion
 ];
 

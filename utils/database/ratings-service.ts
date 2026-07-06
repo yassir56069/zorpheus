@@ -21,9 +21,9 @@ export async function upsertRating(userId: string, albumId: string, score: numbe
 
     // Instantly invalidate the cache! The very next command run will trigger 
     // a clean, full database recalculation so everything is perfectly up to date.
-    await invalidateCaches().catch(e => 
-        console.error('[RATINGS] Cache invalidation failed:', e)
-    );
+    // await invalidateCaches().catch(e => 
+    //     console.error('[RATINGS] Cache invalidation failed:', e)
+    // );
 
     // Fire-and-forget: award feature points if this album is currently featured.
     // recordFeaturedRating is a no-op when isFeatured !== 1.
@@ -81,7 +81,7 @@ export async function batchImportRatings(userId: string, records: Array<{
     }
 
     // After a massive bulk import is entirely finished, invalidate once.
-    await invalidateCaches();
+    // await invalidateCaches();
 }
 
 //#region Profile Display

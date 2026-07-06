@@ -46,6 +46,7 @@ import { handleArtistSearch, renderArtistEmbed } from '@/app/commands/artists';
 import { getAlbumById } from '@/utils/database/album-service';
 import { handleUserRatingsSearch } from '@/app/commands/user-ratings';
 import { handleBan } from '@/app/commands/ban';
+import { handleInvalidateCache } from '@/app/commands/invalidate-cache';
 
 const BANNED_GUILD_ID = '1478001076556009537'; // heehee
 
@@ -142,6 +143,8 @@ export async function POST(req: Request) {
                 return handleLeague(interaction as APIChatInputApplicationCommandInteraction);
             case 'rc':
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);
+            case 'invalidate-cache':
+                return handleInvalidateCache(interaction as APIChatInputApplicationCommandInteraction);
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 

@@ -1019,9 +1019,9 @@ export async function getAlbumRatings(slug: string): Promise<UserRating[]> {
         FROM ratings r
         JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
         JOIN TargetAlbum t ON ca.canonical_slug = t.target_slug
-        WHERE r.score > 0
+        WHERE r.score >= 0 -- CHANGED: Allow 0 scores to be returned for the embed
         GROUP BY r.userId
-        ORDER BY score DESC
+        ORDER BY score DESC -- Archival ratings (0) will neatly drop to the very bottom
     `;
     
     const result = await db.execute({ sql, args: [slug, slug, slug + '%'] });

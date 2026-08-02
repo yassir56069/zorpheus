@@ -47,6 +47,7 @@ import { getAlbumById } from '@/utils/database/album-service';
 import { handleUserRatingsSearch } from '@/app/commands/user-ratings';
 import { handleBan } from '@/app/commands/ban';
 import { handleInvalidateCache } from '@/app/commands/invalidate-cache';
+import { handleGiveFeaturePoints } from '@/app/commands/give-feature-points';
 
 const BANNED_GUILD_ID = '1478001076556009537'; // heehee
 
@@ -106,6 +107,8 @@ export async function POST(req: Request) {
                 return handleFeaturePoints(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'feature-tick':
                 return handleFeatureTick(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+            case 'give-feature-points':
+                return handleGiveFeaturePoints(interaction as APIChatInputApplicationCommandInteraction);
             //#endregion
             case 'album':
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);

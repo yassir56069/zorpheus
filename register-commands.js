@@ -24,6 +24,29 @@ const commands = [
   //     ],
   // },
 
+
+  //#region Admin: Give/Deduct Feature Points
+  {
+    "name": "give-feature-points",
+    "description": "[Admin] Manually award or deduct feature points for a user.",
+    "default_member_permissions": "8",
+    "options": [
+      {
+        "name": "user",
+        "description": "The user whose points you want to adjust.",
+        "type": 6, // USER type
+        "required": true
+      },
+      {
+        "name": "points",
+        "description": "The number of points to add (can be negative to subtract).",
+        "type": 4, // INTEGER type
+        "required": true
+      }
+    ]
+  },
+  //#endregion
+
   //#region Admin: Invalidate Cache
   {
     "name": "invalidate-cache",

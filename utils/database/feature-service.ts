@@ -25,6 +25,31 @@ export interface FeaturePoints {
     points: number;
 }
 
+
+/**
+ * Manually adjusts the feature points for a user.
+ * Accepts positive or negative amounts.
+ */
+export async function adjustUserFeaturePoints(userId: string, amount: number): Promise<number> {
+    // Upsert manual adjustment using a system placeholder slug
+    await db.execute({
+        sql: `
+            INSERT INTO feature_points (userId, albumSlug, points, awardedAt)
+            VALUES (?, 'system-adjustment', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(userId, albumSlug) DO UPDATE SET 
+                points = points + excluded.points
+        `,
+        args: [userId, amount]
+    });
+
+    // Fetch and return the updated total
+    const pointsRes = await db.execute({
+        sql: `SELECT COALESCE(SUM(points), 0) as total FROM feature_points WHERE userId = ?`,
+        args: [userId]
+    });
+    return (pointsRes.rows[0]?.total as number) ?? 0;
+}
+
 /**
  * Returns the feature information for a specific album slug.
  */

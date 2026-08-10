@@ -50,8 +50,7 @@ const commands = [
   //#region Admin: Invalidate Cache
   {
     "name": "invalidate-cache",
-    "description": "[Admin] Force-invalidate the album rankings and global stats cache.",
-    "default_member_permissions": "8"
+    "description": "[Admin] Force-invalidate the album rankings and global stats cache."
   },
   //#endregion
 

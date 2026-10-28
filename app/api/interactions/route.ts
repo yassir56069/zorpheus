@@ -48,6 +48,7 @@ import { handleUserRatingsSearch } from '@/app/commands/user-ratings';
 import { handleBan } from '@/app/commands/ban';
 import { handleInvalidateCache } from '@/app/commands/invalidate-cache';
 import { handleGiveFeaturePoints } from '@/app/commands/give-feature-points';
+import { handleMusicPage, handleMusicPageButton } from '@/app/commands/music-page';
 
 const BANNED_GUILD_ID = '1478001076556009537'; // heehee
 
@@ -148,6 +149,10 @@ export async function POST(req: Request) {
                 return handleRc(interaction as APIChatInputApplicationCommandInteraction);
             case 'invalidate-cache':
                 return handleInvalidateCache(interaction as APIChatInputApplicationCommandInteraction);
+            case 'music-page':
+                return handleMusicPage(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
+
+
             case 'dev':
                 return handleDev(interaction as APIChatInputApplicationCommandInteraction);
 
@@ -165,6 +170,9 @@ export async function POST(req: Request) {
         //#region Menus
         if (componentInteraction.data.component_type === ComponentType.StringSelect) {
             const selectInteraction = componentInteraction as APIMessageComponentSelectMenuInteraction;
+
+ 
+
 
             //#region Assign Genre
             if (customId.startsWith('assign_genre_select_')) {
@@ -331,6 +339,13 @@ export async function POST(req: Request) {
                 return handleProfileButtonInteraction(buttonInteraction);
             }
             //#endregion
+
+           //#region music page
+            if (customId.startsWith('mpage:')) {
+                return handleMusicPageButton(buttonInteraction, waitUntil);
+            }
+            //#endregion
+
 
             //#region Resync
             if (customId.startsWith('resync_fm_')) {

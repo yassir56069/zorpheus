@@ -76,6 +76,58 @@ const commands = [
   },
   //#endregion
 
+  //#region Music Page
+  {
+    name: 'music-page',
+    description: 'Browse and filter albums visually using wildcard searches, genres, and ratings.',
+    options: [
+      {
+        name: 'genres',
+        description: 'Filter by one or multiple genres (comma-separated).',
+        type: 3, // STRING
+        required: false
+      },
+      {
+        name: 'artists',
+        description: 'Search by one or multiple artists (comma-separated).',
+        type: 3, // STRING
+        required: false
+      },
+      {
+        name: 'titles',
+        description: 'Search by one or multiple album titles (comma-separated).',
+        type: 3, // STRING
+        required: false
+      },
+      {
+        name: 'user',
+        description: 'Filter for albums rated by a specific user.',
+        type: 6, // USER
+        required: false
+      },
+      {
+        name: 'rating_filter',
+        description: 'Minimum average rating an album must have (e.g., 3.5).',
+        type: 10, // NUMBER
+        required: false
+      },
+      {
+        name: 'sort',
+        description: 'How to sort the results (Default: Highest Rated).',
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: 'Highest Rated', value: 'highest' },
+          { name: 'Most Popular', value: 'popular' },
+          { name: 'Unrated (by me)', value: 'unrated' },
+          { name: 'Recently Rated', value: 'recent' }
+        ]
+      }
+    ]
+  },
+  //#endregion
+
+
   //#region Admin: Canonize albums by id
   {
     "name": "canonize-album-id",

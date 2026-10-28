@@ -81,22 +81,25 @@ export async function createMusicPageImage(albums: any[], page: number, limit: n
         ctx.font = '16px "Courier New"';
         ctx.fillText(`${album.ratingCount} ratings`, cardWidth - 30, 75);
 
-        // Standard Rank Badge (Top Left Corner of the Album Card)
+        // Subtle Rank Badge (Top Left Corner of the Album Art)
         const globalRank = ((page - 1) * limit) + index + 1;
-        ctx.fillStyle = 'rgba(255, 215, 0, 0.9)'; 
-        roundRect(ctx, 10, 10, 35, 35, 5);
+        
+        // Changed to a sleek, semi-transparent black overlay
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
+        roundRect(ctx, 15, 10, 32, 24, 5); // Positioned exactly flush with the album cover (x:15, y:10)
         ctx.fill();
-        ctx.fillStyle = 'black';
+        
+        ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = 'bold 18px "Courier New"';
-        ctx.fillText(`${globalRank}`, 27, 27);
+        ctx.font = 'bold 14px "Courier New"';
+        ctx.fillText(`${globalRank}`, 31, 22); // Perfectly centered in the new badge box
 
         const badgeBuffer = canvas.toBuffer('image/png');
 
         return [
             { input: cardBg, left: 0, top },
-            { input: roundedArt, left: 15, top: 10 },
+            { input: roundedArt, left: 15, top: top + 10 }, // FIX: added `top +` so it moves down per card
             { input: badgeBuffer, left: 0, top }
         ];
     });

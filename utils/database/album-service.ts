@@ -89,7 +89,8 @@ async function getGlobalAverage(): Promise<number> {
  * If 1 hour has passed (or if the cache was invalidated), this recalculates the ranks 
  * for ALL albums and saves them to a dedicated 'album_ranking_cache' table. 
  */
-async function ensureAlbumRankingsCache(): Promise<boolean> {
+// 1. Make sure to export this so music-page-service can call it
+export async function ensureAlbumRankingsCache(): Promise<boolean> {
     const globalAvg = await getGlobalAverage();
     
     try {
@@ -101,19 +102,19 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
         const cache = cacheRes.rows[0];
         
         if (!cache || (cache.hoursOld as number) > 1) {
-            // 1. Ensure cache table exists
+            // Added mostRecentRating column
             await db.execute({
                 sql: `CREATE TABLE IF NOT EXISTS album_ranking_cache (
                     slug TEXT PRIMARY KEY,
                     ratingCount INTEGER,
                     avgScore REAL,
                     weightedScore REAL,
-                    rank INTEGER
+                    rank INTEGER,
+                    mostRecentRating TIMESTAMP 
                 )`,
                 args: []
             });
 
-            // 2. Perform the heavy calculation ONCE and REPLACE into the cache table.
             await db.execute({
                 sql: `
                     WITH CanonicalAlbums AS (
@@ -122,7 +123,7 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
                         LEFT JOIN albums c ON a.canonicalId = c.id
                     ),
                     CombinedRatings AS (
-                        SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score
+                        SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score, MAX(r.updatedAt) as lastRated
                         FROM ratings r
                         JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
                         WHERE r.score > 0
@@ -133,33 +134,28 @@ async function ensureAlbumRankingsCache(): Promise<boolean> {
                             c.albumId, 
                             COUNT(c.userId) as ratingCount,
                             (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                            (SUM(c.score) + (${MIN_RATINGS_TO_RANK} * ${globalAvg})) / (COUNT(c.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore
+                            (SUM(c.score) + (${MIN_RATINGS_TO_RANK} * ${globalAvg})) / (COUNT(c.userId) + ${MIN_RATINGS_TO_RANK}) as weightedScore,
+                            MAX(c.lastRated) as mostRecentRating
                         FROM CombinedRatings c
                         GROUP BY c.albumId
                     ),
                     RankedAlbums AS (
                         SELECT 
-                            albumId,
-                            ratingCount,
-                            avgScore,
-                            weightedScore,
-                            RANK() OVER(ORDER BY weightedScore DESC, ratingCount DESC) as rank
+                            albumId, ratingCount, avgScore, weightedScore, mostRecentRating,
+                            CASE WHEN ratingCount >= ${MIN_RATINGS_TO_RANK} THEN 
+                                RANK() OVER(ORDER BY weightedScore DESC, ratingCount DESC)
+                            ELSE NULL END as rank
                         FROM AlbumSums
-                        WHERE ratingCount >= ${MIN_RATINGS_TO_RANK}
                     )
-                    INSERT OR REPLACE INTO album_ranking_cache (slug, ratingCount, avgScore, weightedScore, rank)
-                    SELECT albumId, ratingCount, avgScore, weightedScore, rank FROM RankedAlbums;
+                    INSERT OR REPLACE INTO album_ranking_cache (slug, ratingCount, avgScore, weightedScore, rank, mostRecentRating)
+                    SELECT albumId, ratingCount, avgScore, weightedScore, rank, mostRecentRating FROM RankedAlbums;
                 `,
                 args: []
             });
 
-            // 3. Clean up any albums that dropped below the threshold
-            await db.execute({
-                sql: `DELETE FROM album_ranking_cache WHERE ratingCount < ?`,
-                args: [MIN_RATINGS_TO_RANK]
-            });
+            // IMPORTANT: Remove the DELETE WHERE ratingCount < MIN_RATINGS_TO_RANK line!
+            // We want ALL albums in this table so the music page can query them.
 
-            // 4. Update the 'last run' timestamp
             await db.execute({
                 sql: `INSERT INTO system_stats (key, value, updatedAt) 
                       VALUES ('album_rankings_cache', '1', CURRENT_TIMESTAMP)

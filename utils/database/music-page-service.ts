@@ -1,4 +1,5 @@
 import { db } from '@/utils/db';
+import { ensureAlbumRankingsCache } from './album-service';
 import crypto from 'crypto';
 
 export interface MusicPageOptions {
@@ -77,130 +78,73 @@ export async function getMusicPageAlbums(options: MusicPageOptions, page: number
     const { genres, artists, titles, userId, minRating, sort = 'highest', actingUserId } = options;
     const offset = (page - 1) * limit;
 
-    let globalAvg = 7.0; 
-    try {
-        const avgRes = await db.execute({ sql: `SELECT value FROM system_stats WHERE key = 'global_rating_avg'`, args: [] });
-        if (avgRes.rows.length > 0) globalAvg = Number(avgRes.rows[0].value);
-    } catch(e) {}
-    
-    const minRatings = 3;
+    // Optional: ping your cache to make sure it is up to date
+    await ensureAlbumRankingsCache(); 
 
     const args: any[] = [];
-    const ctes: string[] = [];
-
-    // Filter early as possible to keep 'CombinedRatings' heavily optimized
-    let canonicalConditions = '';
-    if (artists && artists.length > 0) {
-        canonicalConditions += ` AND (${artists.map(() => '(a.artistName LIKE ? OR c.artistName LIKE ?)').join(' OR ')})`;
-        artists.forEach(a => args.push(`%${a.trim()}%`, `%${a.trim()}%`));
-    }
-    if (titles && titles.length > 0) {
-        canonicalConditions += ` AND (${titles.map(() => '(a.name LIKE ? OR c.name LIKE ?)').join(' OR ')})`;
-        titles.forEach(t => args.push(`%${t.trim()}%`, `%${t.trim()}%`));
-    }
-
-    ctes.push(`
-        CanonicalAlbums AS (
-            SELECT a.slug as original_slug, COALESCE(c.slug, a.slug) as canonical_slug
-            FROM albums a
-            LEFT JOIN albums c ON a.canonicalId = c.id
-            WHERE 1=1 ${canonicalConditions}
-        )
-    `);
-
-    let unratedJoin = '';
-    if (sort === 'unrated') {
-        ctes.push(`
-            UserRatedAlbums AS (
-                SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
-                FROM ratings r
-                JOIN albums a ON r.albumId = a.slug
-                LEFT JOIN albums c ON a.canonicalId = c.id
-                WHERE r.userId = ?
-            )
-        `);
-        args.push(actingUserId);
-        unratedJoin = `LEFT JOIN UserRatedAlbums ura ON s.albumId = ura.canonical_slug`;
-    }
-
-    let genreJoin = '';
-    if (genres && genres.length > 0) {
-        ctes.push(`
-            ValidGenreAlbums AS (
-                SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
-                FROM albums a
-                LEFT JOIN albums c ON a.canonicalId = c.id
-                JOIN album_genres ag ON ag.albumId = a.slug
-                JOIN genres g ON ag.genreId = g.genreId
-                WHERE g.genreName IN (${genres.map(() => '?').join(', ')})
-            )
-        `);
-        args.push(...genres.map(g => g.trim().toLowerCase()));
-        genreJoin = `JOIN ValidGenreAlbums vga ON ca.canonical_slug = vga.canonical_slug`;
-    }
-
-    ctes.push(`
-        CombinedRatings AS MATERIALIZED (
-            SELECT ca.canonical_slug as albumId, r.userId, MAX(r.score) as score, MAX(r.updatedAt) as lastRated
-            FROM ratings r
-            JOIN CanonicalAlbums ca ON r.albumId = ca.original_slug
-            ${genreJoin}
-            WHERE r.score > 0
-            GROUP BY ca.canonical_slug, r.userId
-        )
-    `);
-
-    ctes.push(`
-        AlbumSums AS (
-            SELECT 
-                c.albumId, 
-                COUNT(c.userId) as ratingCount,
-                (CAST(SUM(c.score) AS FLOAT) / COUNT(c.userId)) as avgScore,
-                (SUM(c.score) + (? * ?)) / (COUNT(c.userId) + ?) as weightedScore,
-                MAX(c.lastRated) as mostRecentRating
-            FROM CombinedRatings c
-            GROUP BY c.albumId
-        )
-    `);
-    args.push(minRatings, globalAvg, minRatings);
-
-    let sql = `WITH ${ctes.join(', ')}
+    
+    let sql = `
         SELECT 
             a.name, a.artistName, a.slug, a.coverArtUrl,
-            s.ratingCount, s.avgScore, s.weightedScore, s.mostRecentRating
-        FROM AlbumSums s
-        JOIN albums a ON s.albumId = a.slug
-        ${unratedJoin}
+            arc.ratingCount, arc.avgScore, arc.weightedScore, arc.mostRecentRating
+        FROM album_ranking_cache arc
+        JOIN albums a ON arc.slug = a.slug
     `;
 
-    let filterUserJoin = '';
-    if (userId) {
-        filterUserJoin = `
-        JOIN (
-            SELECT DISTINCT COALESCE(c.slug, a.slug) as canonical_slug
-            FROM ratings r
-            JOIN albums a ON r.albumId = a.slug
-            LEFT JOIN albums c ON a.canonicalId = c.id
-            WHERE r.userId = ?
-        ) fura ON s.albumId = fura.canonical_slug
+    if (genres && genres.length > 0) {
+        sql += `
+            JOIN album_genres ag ON ag.albumId = a.slug
+            JOIN genres g ON ag.genreId = g.genreId AND g.genreName IN (${genres.map(() => '?').join(', ')})
         `;
-        args.push(userId);
+        args.push(...genres.map(g => g.trim().toLowerCase()));
     }
-    sql += filterUserJoin;
 
     let conditions = ` WHERE 1=1 `;
-    if (sort === 'unrated') conditions += ` AND ura.canonical_slug IS NULL`;
+
+    if (artists && artists.length > 0) {
+        conditions += ` AND EXISTS (
+            SELECT 1 FROM albums orig 
+            WHERE (orig.slug = a.slug OR orig.canonicalId = a.id) AND (${artists.map(() => 'orig.artistName LIKE ?').join(' OR ')})
+        )`;
+        artists.forEach(a => args.push(`%${a.trim()}%`));
+    }
+
+    if (titles && titles.length > 0) {
+        conditions += ` AND EXISTS (
+            SELECT 1 FROM albums orig 
+            WHERE (orig.slug = a.slug OR orig.canonicalId = a.id) AND (${titles.map(() => 'orig.name LIKE ?').join(' OR ')})
+        )`;
+        titles.forEach(t => args.push(`%${t.trim()}%`));
+    }
+
+    if (sort === 'unrated') {
+        conditions += ` AND NOT EXISTS (
+            SELECT 1 FROM ratings r LEFT JOIN albums c ON r.albumId = c.slug 
+            WHERE r.userId = ? AND (r.albumId = a.slug OR c.canonicalId = a.id)
+        )`;
+        args.push(actingUserId);
+    }
+
+    if (userId) {
+        conditions += ` AND EXISTS (
+            SELECT 1 FROM ratings r LEFT JOIN albums c ON r.albumId = c.slug 
+            WHERE r.userId = ? AND (r.albumId = a.slug OR c.canonicalId = a.id)
+        )`;
+        args.push(userId);
+    }
+
     if (minRating) {
-        conditions += ` AND s.avgScore >= ?`;
+        conditions += ` AND arc.avgScore >= ?`;
         args.push(minRating * 2);
     }
-    sql += conditions;
 
-    let orderBy = 's.weightedScore DESC, s.ratingCount DESC';
-    if (sort === 'popular') orderBy = 's.ratingCount DESC, s.weightedScore DESC';
-    if (sort === 'recent') orderBy = 's.mostRecentRating DESC, s.weightedScore DESC';
+    sql += conditions + ` ORDER BY `;
     
-    sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+    if (sort === 'popular') sql += 'arc.ratingCount DESC, arc.weightedScore DESC';
+    else if (sort === 'recent') sql += 'arc.mostRecentRating DESC, arc.weightedScore DESC';
+    else sql += 'arc.weightedScore DESC, arc.ratingCount DESC';
+    
+    sql += ` LIMIT ? OFFSET ?`;
     args.push(limit, offset);
 
     const result = await db.execute({ sql, args });

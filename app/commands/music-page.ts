@@ -26,39 +26,36 @@ export async function createMusicPageImage(albums: any[], page: number, limit: n
     const canvasHeight = Math.max(albums.length * cardHeight, cardHeight);
 
     const compositeOperations: any[] = [];
-    
     const bg = await sharp({ create: { width: canvasWidth, height: canvasHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+
+    // 1. Pre-compile static buffers OUTSIDE the loop so they aren't generated repeatedly
+    const cardBg = Buffer.from(`<svg width="${cardWidth}" height="${cardHeight}"><rect x="0" y="5" width="${cardWidth}" height="${cardHeight - 10}" fill="rgba(30,30,30,0.8)" rx="10" ry="10"/></svg>`);
+    const maskSvg = Buffer.from(`<svg><rect x="0" y="0" width="120" height="120" rx="15" ry="15" fill="white"/></svg>`);
+    const fallbackArt = await sharp({ create: { width: 120, height: 120, channels: 4, background: { r: 50, g: 50, b: 50, alpha: 1 } } })
+        .composite([{ input: maskSvg, blend: 'dest-in' }]).png().toBuffer();
 
     const albumPromises = albums.map(async (album, index) => {
         const top = index * cardHeight;
         
-        // Semi-transparent aesthetic card backing
-        const cardBg = Buffer.from(`<svg width="${cardWidth}" height="${cardHeight}">
-            <rect x="0" y="5" width="${cardWidth}" height="${cardHeight - 10}" fill="rgba(30,30,30,0.8)" rx="10" ry="10"/>
-        </svg>`);
-        
-        let albumArt: Buffer;
+        let roundedArt: Buffer;
         try {
             const url = album.coverArtUrl;
             if (!url) throw new Error("Missing");
             const res = await fetch(url);
             if (!res.ok) throw new Error("Failed");
             const arrayBuffer = await res.arrayBuffer();
-            albumArt = await sharp(Buffer.from(arrayBuffer)).resize(120, 120).png().toBuffer();
+            
+            // 2. Chain resize and composite together to skip a Buffer generation step entirely!
+            roundedArt = await sharp(Buffer.from(arrayBuffer))
+                .resize(120, 120)
+                .composite([{ input: maskSvg, blend: 'dest-in' }])
+                .png().toBuffer();
         } catch {
-            albumArt = await sharp({ create: { width: 120, height: 120, channels: 4, background: { r: 50, g: 50, b: 50, alpha: 1 } } }).png().toBuffer();
+            roundedArt = fallbackArt; // 3. Utilize the pre-generated fallback
         }
-
-        const roundedArt = await sharp(albumArt)
-            .composite([{
-                input: Buffer.from(`<svg><rect x="0" y="0" width="120" height="120" rx="15" ry="15" fill="white"/></svg>`),
-                blend: 'dest-in'
-            }])
-            .png().toBuffer();
 
         const canvas = createCanvas(cardWidth, cardHeight);
         const ctx = canvas.getContext('2d');
-
         // Render card information
         ctx.fillStyle = 'white';
         ctx.font = 'bold 24px "Courier New", "Noto Sans JP"';
@@ -97,21 +94,20 @@ export async function createMusicPageImage(albums: any[], page: number, limit: n
 
         const badgeBuffer = canvas.toBuffer('image/png');
 
+
         return [
             { input: cardBg, left: 0, top },
-            { input: roundedArt, left: 15, top: top + 10 }, // FIX: added `top +` so it moves down per card
-            { input: badgeBuffer, left: 0, top }
+            { input: roundedArt, left: 15, top: top + 10 },
+            { input: canvas.toBuffer('image/png'), left: 0, top }
         ];
     });
 
     const results = await Promise.all(albumPromises);
     results.flat().forEach(op => compositeOperations.push(op));
 
-    return sharp(bg)
-        .composite(compositeOperations)
-        .png()
-        .toBuffer();
+    return sharp(bg).composite(compositeOperations).png().toBuffer();
 }
+
 
 async function updateResponse(appId: string, token: string, data: any) {
     await fetch(`https://discord.com/api/v10/webhooks/${appId}/${token}/messages/@original`, {

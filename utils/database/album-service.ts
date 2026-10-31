@@ -305,16 +305,13 @@ export async function getTopUnratedAlbums(userId: string, options: {
                 FROM album_ranking_cache c
                 JOIN albums a ON c.slug = a.slug
                 LEFT JOIN UserRatedAlbums ura ON c.slug = ura.canonical_slug
-                WHERE ura.canonical_slug IS NULL
+                WHERE ura.canonical_slug IS NULL AND c.rank IS NOT NULL
                 ORDER BY c.rank ASC
                 LIMIT ? OFFSET ?
             `;
             const result = await db.execute({ sql, args: [userId, limit, offset] });
             
-            // If we found results OR if we are paging deep into the list, return.
-            // If page=1 and rows=0, it means the cache somehow failed/is empty. We drop to the fallback!
             if (result.rows.length > 0 || page > 1) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return result.rows as any[];
             }
         }
@@ -508,6 +505,7 @@ export async function getTopAlbums(options: {
                     c.ratingCount, c.avgScore, c.weightedScore
                 FROM album_ranking_cache c
                 JOIN albums a ON c.slug = a.slug
+                WHERE c.rank IS NOT NULL 
                 ORDER BY c.rank ASC
                 LIMIT ? OFFSET ?
             `;
@@ -1129,7 +1127,7 @@ export async function getRandomTopUnhighlightedAlbum(topLimit: number): Promise<
                 SELECT c.slug
                 FROM album_ranking_cache c
                 JOIN albums a ON c.slug = a.slug
-                WHERE a.albumHighlight IS NULL
+                WHERE a.albumHighlight IS NULL AND c.rank IS NOT NULL
                 ORDER BY c.rank ASC
                 LIMIT ?
             )

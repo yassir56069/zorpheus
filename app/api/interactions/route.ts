@@ -25,6 +25,7 @@ import { handleRc } from '@/app/commands/rc';
 import { handleLeague } from '@/app/commands/league';
 import { handleJoin } from '@/app/commands/join';
 import { handleDev } from '@/app/sandbox/dev';
+import { handleFeaturedChart } from '@/app/commands/featured-chart';
 import {
     handleFeaturedAlbum,
     handleFeatureQueueList,
@@ -110,6 +111,8 @@ export async function POST(req: Request) {
                 return handleFeatureTick(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             case 'give-feature-points':
                 return handleGiveFeaturePoints(interaction as APIChatInputApplicationCommandInteraction);
+            case 'featured-chart': // <--- ADD THIS LINE HERE
+                return handleFeaturedChart(interaction as APIChatInputApplicationCommandInteraction, waitUntil);
             //#endregion
             case 'album':
                 return handleAlbum(interaction as APIChatInputApplicationCommandInteraction, waitUntil);

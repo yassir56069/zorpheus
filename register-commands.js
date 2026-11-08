@@ -177,6 +177,18 @@ const commands = [
     "description": "[Admin] Manually trigger the weekly featured album rotation.",
     "default_member_permissions": "8",
   },
+  {
+    "name": "featured-chart",
+    "description": "🌟 Generates a list chart of the top featured albums in the server by points.",
+    "options": [
+      {
+        "name": "page",
+        "description": "Which page of the rankings to display (default: 1).",
+        "type": 4, // INTEGER
+        "required": false
+      }
+    ]
+  },
   //#endregion
 
   //#region Ping

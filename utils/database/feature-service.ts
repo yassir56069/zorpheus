@@ -515,6 +515,7 @@ export async function getUserFeaturePoints(userId: string): Promise<number> {
  * Returns the feature leaderboard (top users by points).
  */
 export async function getFeatureLeaderboard(limit = 10): Promise<FeaturePoints[]> {
+
     const res = await db.execute({
         sql: `
             SELECT userId, SUM(points) as points
@@ -526,4 +527,29 @@ export async function getFeatureLeaderboard(limit = 10): Promise<FeaturePoints[]
         args: [limit]
     });
     return res.rows as unknown as FeaturePoints[];
+}
+
+/**
+ * Returns a paginated list of featured albums ranked by their total score (points).
+ */
+export async function getTopFeaturedAlbums(page: number, limit: number) {
+    const offset = (page - 1) * limit;
+    const res = await db.execute({
+        sql: `
+            SELECT 
+                f.albumSlug as slug,
+                f.score as featureScore,
+                f.ratingCount,
+                a.name,
+                a.artistName,
+                a.coverArtUrl,
+                RANK() OVER(ORDER BY f.score DESC, f.ratingCount DESC) as rank
+            FROM featured_album_scores f
+            JOIN albums a ON f.albumSlug = a.slug
+            ORDER BY rank ASC
+            LIMIT ? OFFSET ?
+        `,
+        args: [limit, offset]
+    });
+    return res.rows;
 }

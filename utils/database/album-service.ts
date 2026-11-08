@@ -262,7 +262,7 @@ export async function searchUserRatings(userId: string, query: string): Promise<
         LEFT JOIN albums c ON a.canonicalId = c.id
         WHERE r.userId = ? AND r.score > 0 AND (${conditions.join(' OR ')})
         GROUP BY COALESCE(c.id, a.id)
-        ORDER BY matchScore DESC, userScore DESC
+        ORDER BY matchScore DESC, userScore DESC, name ASC
         LIMIT 25
     `;
 
@@ -982,7 +982,7 @@ export async function searchAlbums(query: string, legacySearch: boolean = false)
         LEFT JOIN albums c ON a.canonicalId = c.id
         WHERE ${conditions.join(' OR ')}
         GROUP BY COALESCE(c.id, a.id)
-        ORDER BY matchScore DESC
+        ORDER BY matchScore DESC, name ASC
         LIMIT 100
     `;
 

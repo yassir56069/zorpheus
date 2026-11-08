@@ -192,15 +192,15 @@ export async function invalidateCaches() {
 
 export async function searchUserRatings(userId: string, query: string): Promise<UserRatingSearchResult[]> {
     const cleanQuery = query.trim().replace(/\s+/g, ' ');
-    if (!cleanQuery) return[];
+    if (!cleanQuery) return [];
     
     const searchTerm = `%${cleanQuery}%`;
     const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
     const words = cleanQuery.split(' ').filter(w => w.length > 0);
 
-    const conditions: string[] =[];
+    const conditions: string[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const args: any[] =[];
+    const args: any[] = [];
 
     args.push(searchTerm, searchTerm, looseQuery, searchTerm);
     args.push(userId);
@@ -214,8 +214,11 @@ export async function searchUserRatings(userId: string, query: string): Promise<
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
+    // UPDATED REGEX: Added c, s, z, l, n and their special character variants
+    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžĆŚĄĘŁŻŹŃŽ]/g;
+
     if (cleanQuery.length >= 3) {
-        const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
+        const forgivingPattern = cleanQuery.replace(specialCharsRegex, '_').replace(/\s+/g, '%');
         const forgivingQuery = `%${forgivingPattern}%`;
         
         conditions.push(
@@ -233,7 +236,7 @@ export async function searchUserRatings(userId: string, query: string): Promise<
         const wordConditions = meaningfulWords.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
         conditions.push(`(${wordConditions.join(' AND ')})`);
         for (const word of meaningfulWords) {
-            const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
+            const w = `%${word.replace(specialCharsRegex, '_')}%`;
             args.push(w, w, w);
         }
     }
@@ -266,7 +269,6 @@ export async function searchUserRatings(userId: string, query: string): Promise<
     const result = await db.execute({ sql, args });
     return result.rows as unknown as UserRatingSearchResult[];
 }
-
 //#endregion
 
 
@@ -934,8 +936,11 @@ export async function searchAlbums(query: string, legacySearch: boolean = false)
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
+    // UPDATED REGEX: Added c, s, z, l, n and their special character variants
+    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžĆŚĄĘŁŻŹŃŽ]/g;
+
     if (cleanQuery.length >= 3) {
-        const forgivingPattern = cleanQuery.replace(/[aeiouyAEIOUY]/g, '_').replace(/\s+/g, '%');
+        const forgivingPattern = cleanQuery.replace(specialCharsRegex, '_').replace(/\s+/g, '%');
         const forgivingQuery = `%${forgivingPattern}%`;
         
         conditions.push(
@@ -953,7 +958,7 @@ export async function searchAlbums(query: string, legacySearch: boolean = false)
         const wordConditions = meaningfulWords.map(() => `(a.name LIKE ? OR a.artistName LIKE ? OR a.slug LIKE ?)`);
         conditions.push(`(${wordConditions.join(' AND ')})`);
         for (const word of meaningfulWords) {
-            const w = `%${word.replace(/[aeiouyAEIOUY]/g, '_')}%`;
+            const w = `%${word.replace(specialCharsRegex, '_')}%`;
             args.push(w, w, w);
         }
     }
@@ -984,7 +989,6 @@ export async function searchAlbums(query: string, legacySearch: boolean = false)
     const result = await db.execute({ sql, args });
     let rows = result.rows as unknown as Array<{ name: string, artistName: string, slug: string, releaseYear: string | null }>;
 
-    // Only show albums with a year assigned if at least 1 returned result has a year
     if (!legacySearch) {
         const albumsWithYear = rows.filter(r => r.releaseYear != null && r.releaseYear.trim() !== '' && r.releaseYear !== '0');
         if (albumsWithYear.length > 0) {

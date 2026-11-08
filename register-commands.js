@@ -80,6 +80,7 @@ const commands = [
   {
     "name": "music-page",
     "description": "Browse and filter albums visually using wildcard searches, genres, and ratings.",
+    "default_member_permissions": "8",
     "options": [
       {
         "name": "genres",

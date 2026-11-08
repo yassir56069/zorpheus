@@ -214,8 +214,8 @@ export async function searchUserRatings(userId: string, query: string): Promise<
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
-    // UPDATED REGEX: Added c, s, z, l, n and their special character variants
-    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžĆŚĄĘŁŻŹŃŽ]/g;
+    // UPDATED REGEX: Added ç and Ç
+    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžçĆŚĄĘŁŻŹŃŽÇ]/g;
 
     if (cleanQuery.length >= 3) {
         const forgivingPattern = cleanQuery.replace(specialCharsRegex, '_').replace(/\s+/g, '%');
@@ -936,8 +936,8 @@ export async function searchAlbums(query: string, legacySearch: boolean = false)
     );
     args.push(searchTerm, searchTerm, searchTerm, looseQuery, looseQuery);
 
-    // UPDATED REGEX: Added c, s, z, l, n and their special character variants
-    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžĆŚĄĘŁŻŹŃŽ]/g;
+    // UPDATED REGEX: Added ç and Ç
+    const specialCharsRegex = /[aeiouycszlnAEIOUYCSZLNćśąęłżźńžçĆŚĄĘŁŻŹŃŽÇ]/g;
 
     if (cleanQuery.length >= 3) {
         const forgivingPattern = cleanQuery.replace(specialCharsRegex, '_').replace(/\s+/g, '%');

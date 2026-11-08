@@ -912,16 +912,16 @@ export async function getAlbumWithStats(slug: string): Promise<AlbumStats | null
     return fallbackRes.rows[0] as unknown as AlbumStats;
 }
 
-export async function searchAlbums(query: string) {
+export async function searchAlbums(query: string, legacySearch: boolean = false) {
     const cleanQuery = query.trim().replace(/\s+/g, ' ');
-    if (!cleanQuery) return[];
+    if (!cleanQuery) return [];
     
     const searchTerm = `%${cleanQuery}%`;
     const looseQuery = `%${cleanQuery.replace(/\s+/g, '%')}%`;
     const words = cleanQuery.split(' ').filter(w => w.length > 0);
 
-    const conditions: string[] =[];
-    const args: string[] =[];
+    const conditions: string[] = [];
+    const args: string[] = [];
 
     args.push(searchTerm, searchTerm, looseQuery, searchTerm);
 
@@ -978,11 +978,21 @@ export async function searchAlbums(query: string) {
         WHERE ${conditions.join(' OR ')}
         GROUP BY COALESCE(c.id, a.id)
         ORDER BY matchScore DESC, name ASC
-        LIMIT 25
+        LIMIT 100
     `;
 
     const result = await db.execute({ sql, args });
-    return result.rows as unknown as Array<{ name: string, artistName: string, slug: string, releaseYear: string | null }>;
+    let rows = result.rows as unknown as Array<{ name: string, artistName: string, slug: string, releaseYear: string | null }>;
+
+    // Only show albums with a year assigned if at least 1 returned result has a year
+    if (!legacySearch) {
+        const albumsWithYear = rows.filter(r => r.releaseYear != null && r.releaseYear.trim() !== '' && r.releaseYear !== '0');
+        if (albumsWithYear.length > 0) {
+            rows = albumsWithYear;
+        }
+    }
+
+    return rows.slice(0, 25);
 }
 
 export async function updateAlbumCoverArt(slug: string, url: string) {

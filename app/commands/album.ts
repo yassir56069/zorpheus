@@ -200,10 +200,14 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
     console.log("[ALBUM] Received /album-search command");
     const options = interaction.data.options ?? [];
     const queryOption = options.find(opt => opt.name === 'searchterm') as APIApplicationCommandInteractionDataStringOption | undefined;
+    
+    // Read the new legacy-search parameter (as any to easily read .value)
+    const legacyOption = options.find(opt => opt.name === 'legacy-search') as any;
 
     if (!queryOption) return new NextResponse('Missing query', { status: 400 });
 
     const searchTerm = queryOption.value;
+    const legacySearch = legacyOption?.value === true;
 
     if (searchTerm.length > 100) {
         return NextResponse.json({
@@ -217,7 +221,9 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
     const runBackgroundTask = async () => {
         try {
             console.log(`[ALBUM] Searching for: ${searchTerm}`);
-            const hits = await searchAlbums(searchTerm);
+            
+            // Pass legacySearch into the query
+            const hits = await searchAlbums(searchTerm, legacySearch);
             
             if (hits.length === 0) {
                 await editInteractionResponse(interaction.token, { content: `❌ No albums found matching \`${searchTerm}\`.` });
@@ -239,8 +245,18 @@ export async function handleAlbumSearch(interaction: APIChatInputApplicationComm
                 }
             }
 
+            // If the filter/query resulted in exactly ONE unique option, bypass the menu and render the album directly
+            if (uniqueOptions.length === 1) {
+                const result = await renderAlbumEmbed(uniqueOptions[0].value);
+                await editInteractionResponse(interaction.token, {
+                    content: `🔍 Found exactly 1 match for \`${searchTerm}\`!`,
+                    ...result.data
+                });
+                return;
+            }
+
             await editInteractionResponse(interaction.token, {
-                content: `🔍 Found **${hits.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
+                content: `🔍 Found **${uniqueOptions.length}** results for \`${searchTerm}\`.\nSelect one below to view its ratings!`,
                 components: [{
                     type: ComponentType.ActionRow,
                     components: [{

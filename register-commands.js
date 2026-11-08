@@ -80,7 +80,6 @@ const commands = [
   {
     "name": "music-page",
     "description": "Browse and filter albums visually using wildcard searches, genres, and ratings.",
-    "default_member_permissions": "8",
     "options": [
       {
         "name": "genres",
@@ -230,6 +229,12 @@ const commands = [
         type: 3, // STRING
         required: true,
       },
+      {
+        name: 'legacy-search',
+        description: 'Keep the search unfiltered by release year',
+        type: 5, // BOOLEAN
+        required: false,
+      }
     ],
   },
   //#endregion
